@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1777514113379,
+      "tag": "0000_flashy_vulcan",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1777514672342,
+      "tag": "0001_spooky_dorian_gray",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1778064089237,
+      "tag": "0002_big_bill_hollister",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1778066148720,
+      "tag": "0003_wet_outlaw_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1778225812213,
+      "tag": "0004_quiet_paibok",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1778484454441,
+      "tag": "0005_add_pdf_cache",
+      "breakpoints": true
+    }
+  ]
+}
