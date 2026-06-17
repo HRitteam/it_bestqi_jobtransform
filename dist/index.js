@@ -1377,12 +1377,45 @@ init_db();
 init_schema();
 import { eq as eq2 } from "drizzle-orm";
 var DEFAULT_GUEST_OPEN_ID = "bestqi_guest_default";
+function getDefaultUserId() {
+  const raw = process.env.DEFAULT_USER_ID;
+  if (!raw) return null;
+  const id = parseInt(raw, 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+function buildFallbackUser(id) {
+  return {
+    id,
+    openId: DEFAULT_GUEST_OPEN_ID,
+    companyId: null,
+    phone: null,
+    name: "\u666E\u901A\u7528\u6237",
+    email: null,
+    loginMethod: "default",
+    role: "user",
+    tier: "free",
+    inviteCount: 0,
+    createdAt: /* @__PURE__ */ new Date(),
+    updatedAt: /* @__PURE__ */ new Date(),
+    lastSignedIn: /* @__PURE__ */ new Date()
+  };
+}
 var cachedGuestUser = null;
 async function getOrCreateGuestUser() {
   if (cachedGuestUser) return cachedGuestUser;
+  const fixedId = getDefaultUserId();
   const db = await getDb();
-  if (!db) return null;
+  if (!db) {
+    return buildFallbackUser(fixedId ?? 1);
+  }
   try {
+    if (fixedId) {
+      const byId = await db.select().from(users).where(eq2(users.id, fixedId)).limit(1);
+      if (byId.length > 0) {
+        cachedGuestUser = byId[0];
+        return cachedGuestUser;
+      }
+    }
     const existing = await db.select().from(users).where(eq2(users.openId, DEFAULT_GUEST_OPEN_ID)).limit(1);
     if (existing.length > 0) {
       cachedGuestUser = existing[0];
@@ -1395,11 +1428,14 @@ async function getOrCreateGuestUser() {
       tier: "free"
     });
     const created = await db.select().from(users).where(eq2(users.openId, DEFAULT_GUEST_OPEN_ID)).limit(1);
-    cachedGuestUser = created[0] || null;
-    return cachedGuestUser;
+    if (created.length > 0) {
+      cachedGuestUser = created[0];
+      return cachedGuestUser;
+    }
+    return buildFallbackUser(fixedId ?? 1);
   } catch (e) {
-    console.error("[guestUser] getOrCreateGuestUser failed:", e);
-    return null;
+    console.error("[guestUser] getOrCreateGuestUser failed, using fallback:", e);
+    return buildFallbackUser(fixedId ?? 1);
   }
 }
 

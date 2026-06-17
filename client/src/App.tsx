@@ -67,28 +67,16 @@ function Router() {
               <Route path="/invite/:code" component={InvitePage} />
               <Route path="/about" component={AboutPage} />
 
-              {/* ===== 管理后台页面（需管理员密码 / 带 ?adminPwd= 参数）===== */}
-              <Route path="/dashboard">
-                <AdminGuard><DashboardPage /></AdminGuard>
-              </Route>
-              <Route path="/history">
-                <AdminGuard><HistoryPage /></AdminGuard>
-              </Route>
-              <Route path="/batch">
-                <AdminGuard><BatchPage /></AdminGuard>
-              </Route>
-              <Route path="/compare">
-                <AdminGuard><ComparePage /></AdminGuard>
-              </Route>
-              <Route path="/department-report">
-                <AdminGuard><DepartmentReportPage /></AdminGuard>
-              </Route>
-              <Route path="/brand-settings">
-                <AdminGuard><BrandSettingsPage /></AdminGuard>
-              </Route>
-              <Route path="/admin-tools">
-                <AdminGuard><AdminToolsPage /></AdminGuard>
-              </Route>
+              {/* ===== 普通用户可访问的业务页面（无需密码）===== */}
+              <Route path="/dashboard" component={DashboardPage} />
+              <Route path="/history" component={HistoryPage} />
+              <Route path="/batch" component={BatchPage} />
+              <Route path="/compare" component={ComparePage} />
+              <Route path="/department-report" component={DepartmentReportPage} />
+              <Route path="/brand-settings" component={BrandSettingsPage} />
+              <Route path="/admin-tools" component={AdminToolsPage} />
+
+              {/* ===== 平台管理页面（需管理员密码 / 带 ?adminPwd= 参数）===== */}
               <Route path="/llm-manager">
                 <AdminGuard><LlmManagerPage /></AdminGuard>
               </Route>

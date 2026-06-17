@@ -48,18 +48,25 @@ interface NavGroup {
 }
 
 // Grouped navigation structure
-// [定制] 普通用户只能看到「开始分析」和「产品介绍」；
-// 其余后台功能菜单均需管理员验证通过（platformAdmin: true）后才显示。
+// [定制] 普通用户可见大部分功能节点；
+// 仅「模型管理」与「调用日志」为平台管理功能，需管理员密码验证（platformAdmin: true）后才显示。
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "工作台",
     items: [
       { icon: Home, label: "开始分析", path: "/" },
+      { icon: LayoutDashboard, label: "HR工作台", path: "/dashboard" },
+      { icon: FileText, label: "批量分析", path: "/batch" },
+      { icon: Clock, label: "历史记录", path: "/history" },
+      { icon: GitCompareArrows, label: "报告对比", path: "/compare" },
+      { icon: Building2, label: "部门报告", path: "/department-report" },
     ],
   },
   {
-    label: "其他",
+    label: "设置",
     items: [
+      { icon: Palette, label: "品牌定制", path: "/brand-settings" },
+      { icon: Wrench, label: "工具管理", path: "/admin-tools" },
       { icon: Brain, label: "产品介绍", path: "/about" },
     ],
   },
@@ -67,13 +74,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: "管理后台",
     platformAdmin: true,
     items: [
-      { icon: LayoutDashboard, label: "HR工作台", path: "/dashboard", platformAdmin: true },
-      { icon: FileText, label: "批量分析", path: "/batch", platformAdmin: true },
-      { icon: Clock, label: "历史记录", path: "/history", platformAdmin: true },
-      { icon: GitCompareArrows, label: "报告对比", path: "/compare", platformAdmin: true },
-      { icon: Building2, label: "部门报告", path: "/department-report", platformAdmin: true },
-      { icon: Palette, label: "品牌定制", path: "/brand-settings", platformAdmin: true },
-      { icon: Wrench, label: "工具管理", path: "/admin-tools", platformAdmin: true },
       { icon: Database, label: "模型管理", path: "/llm-manager", platformAdmin: true },
       { icon: ScrollText, label: "调用日志", path: "/llm-logs", platformAdmin: true },
     ],
