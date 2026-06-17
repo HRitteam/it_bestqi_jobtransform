@@ -11,7 +11,6 @@ import { registerApiRoutes } from "../apiRoutes";
 import { registerExportRoutes } from "../exportRoutes";
 import { registerStorageProxy } from "./storageProxy";
 import { registerAdminAuthRoute } from "../adminAuthRoute";
-import { iframeAuthMiddleware } from "./iframeAuth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -42,8 +41,7 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // iframe 身份识别中间件（必须在路由注册之前）
-  app.use(iframeAuthMiddleware());
+  // [定制] 已移除 iframe 身份识别中间件（iframe 嵌套/域名限制逻辑已全部移除）
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);

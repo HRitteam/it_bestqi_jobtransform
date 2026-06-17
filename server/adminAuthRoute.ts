@@ -9,6 +9,7 @@ import type { Express } from "express";
 import { SignJWT } from "jose";
 import { ENV } from "./_core/env";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { checkPlatformAdmin } from "./_core/adminIdentity";
 
 const PLATFORM_ADMIN_COOKIE = "platform_admin_session";
 const ADMIN_SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -64,5 +65,11 @@ export function registerAdminAuthRoute(app: Express) {
   app.post("/api/admin/logout", (req, res) => {
     res.clearCookie(PLATFORM_ADMIN_COOKIE, { path: "/" });
     return res.json({ success: true });
+  });
+
+  // [定制] 校验当前会话 cookie 是否仍有效（用于密码登录门的会话持久化检查）
+  app.get("/api/admin/status", async (req, res) => {
+    const ok = await checkPlatformAdmin(req.headers.cookie);
+    return res.json({ authenticated: ok });
   });
 }

@@ -26,6 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { GuidedTour } from "@/components/GuidedTour";
 import { apiFetch } from "@/lib/apiFetch";
+import { FIXED_INDUSTRY, FIXED_COMPANY_NAME, FIXED_COMPANY_PROFILE } from "@shared/bestqiConstants";
 
 const HOT_CASES = [
   { title: "雇主品牌经理", company: "互联网大厂", industry: "科技" },
@@ -281,6 +282,47 @@ export default function Home() {
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
             输入岗位/职能信息，AI 将通过9步推理链为您生成专业的AI转型分析报告
           </p>
+        </motion.div>
+
+        {/* [定制] 固定行业与公司简介展示区（只读，不可修改） */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springPresets.gentle, delay: 0.05 }}
+          className="glass-card mb-6 space-y-4"
+        >
+          <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
+            <div className="flex-1">
+              <label className="text-xs font-medium text-muted-foreground">所属行业（固定）</label>
+              <input
+                type="text"
+                value={FIXED_INDUSTRY}
+                readOnly
+                disabled
+                className="mt-1 w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none cursor-not-allowed"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs font-medium text-muted-foreground">公司名称（固定）</label>
+              <input
+                type="text"
+                value={FIXED_COMPANY_NAME}
+                readOnly
+                disabled
+                className="mt-1 w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none cursor-not-allowed"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">公司简介（固定，不可修改）</label>
+            <textarea
+              value={FIXED_COMPANY_PROFILE}
+              readOnly
+              disabled
+              rows={7}
+              className="mt-1 w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none resize-none cursor-not-allowed leading-relaxed"
+            />
+          </div>
         </motion.div>
 
         {/* Input Area */}

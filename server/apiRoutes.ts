@@ -11,6 +11,7 @@ import { sdk } from "./_core/sdk";
 import { invokeLLM } from "./_core/llm";
 import { authenticateAdmin } from "./_core/adminIdentity";
 import type { User } from "../drizzle/schema";
+import { FIXED_INDUSTRY, FIXED_COMPANY_NAME, FIXED_COMPANY_PROFILE } from "../shared/bestqiConstants";
 import mammoth from "mammoth";
 import { execSync } from "child_process";
 import * as fs from "fs";
@@ -53,18 +54,15 @@ const sseConnections = new Map<string, Response[]>();
 
 /**
  * 统一的 REST 接口用户身份识别
- * 优先级：iframe 身份 > 平台管理员 cookie > OAuth 会话 cookie
+ * [定制] 已移除 iframe 身份分支
+ * 优先级：平台管理员 cookie（密码登录门签发） > OAuth 会话 cookie
  */
 async function resolveUser(req: Request): Promise<User | null> {
-  // 1. iframe 身份（中间件已注入）
-  const iframeUser = (req as any).iframeUser;
-  if (iframeUser) return iframeUser;
-
-  // 2. 平台管理员 cookie
+  // 1. 平台管理员 cookie
   const adminUser = await authenticateAdmin(req);
   if (adminUser) return adminUser;
 
-  // 3. OAuth 会话 cookie
+  // 2. OAuth 会话 cookie
   try {
     return await sdk.authenticateRequest(req);
   } catch {
@@ -132,8 +130,12 @@ export function registerApiRoutes(app: Router) {
         extractedInfo = await extractJobInfoViaAI(text, { companyId, userId: user.id, phone: user.phone || undefined });
 
         const jobTitle = extractedInfo?.jobTitle || "";
-        const company = extractedInfo?.company || "";
-        const industry = extractedInfo?.industry || "";
+        // [定制] 行业与公司简介硬编码，忽略 AI 提取/用户输入的值
+        const company = FIXED_COMPANY_NAME;
+        const industry = FIXED_INDUSTRY;
+        // [定制] 将固定公司简介作为背景注入分析上下文
+        const composedInputText = `公司名称：${FIXED_COMPANY_NAME}\n所属行业：${FIXED_INDUSTRY}\n公司简介：${FIXED_COMPANY_PROFILE}\n\n${text}`;
+        const fixedExtractedInfo = { ...(extractedInfo || {}), company, industry, companyProfile: FIXED_COMPANY_PROFILE };
 
         if (db) {
           await db.insert(reports).values({
@@ -143,8 +145,8 @@ export function registerApiRoutes(app: Router) {
             jobTitle: jobTitle || null,
             company: company || null,
             industry: industry || null,
-            inputText: text,
-            extractedInfo: extractedInfo || null,
+            inputText: composedInputText,
+            extractedInfo: fixedExtractedInfo,
             status: "analyzing",
           });
         }
@@ -154,7 +156,7 @@ export function registerApiRoutes(app: Router) {
           jobTitle,
           company,
           industry,
-          inputText: text,
+          inputText: composedInputText,
           fileContents: [] as string[],
         };
         startAnalysis(reportId, input, { companyId, userId: user.id, phone: user.phone || undefined });
@@ -407,7 +409,10 @@ export function registerApiRoutes(app: Router) {
         return;
       }
 
-      const { reportId, jobTitle, company, industry, department, responsibilities, teamSize, currentTools, painPoints, budget, salaryRange } = req.body;
+      const { reportId, jobTitle, department, responsibilities, teamSize, currentTools, painPoints, budget, salaryRange } = req.body;
+      // [定制] 行业与公司硬编码，忽略前端传入的 company / industry
+      const company = FIXED_COMPANY_NAME;
+      const industry = FIXED_INDUSTRY;
       if (!reportId) {
         res.status(400).json({ error: "reportId is required" });
         return;
@@ -435,10 +440,12 @@ export function registerApiRoutes(app: Router) {
       const fileContents = reportFiles.map(f => f.extractedText).filter(Boolean) as string[];
 
       // Build input for analysis chain
+      // [定制] 公司、行业、公司简介为固定值
       const inputText = [
         jobTitle ? `岗位名称：${jobTitle}` : "",
-        company ? `公司：${company}` : "",
-        industry ? `行业：${industry}` : "",
+        `公司：${company}`,
+        `行业：${industry}`,
+        `公司简介：${FIXED_COMPANY_PROFILE}`,
         department ? `部门：${department}` : "",
         responsibilities ? `职责描述：${responsibilities}` : "",
         teamSize ? `团队规模：${teamSize}` : "",
@@ -470,11 +477,11 @@ export function registerApiRoutes(app: Router) {
           company: company || null,
           industry: industry || null,
           inputText,
-          extractedInfo: { jobTitle, company, industry, department, responsibilities, teamSize, currentTools, painPoints, budget, salaryRange },
+          extractedInfo: { jobTitle, company, industry, companyProfile: FIXED_COMPANY_PROFILE, department, responsibilities, teamSize, currentTools, painPoints, budget, salaryRange },
         })
         .where(eq(reports.reportId, reportId));
 
-      const companyId = (req as any).companyId || user.companyId || null;
+      const companyId = user.companyId || undefined;
       startAnalysis(reportId, input, { companyId, userId: user.id, phone: user.phone || undefined });
       res.json({ reportId });
     } catch (error) {

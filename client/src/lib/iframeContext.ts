@@ -71,21 +71,18 @@ export function getIframeIdentity(): IframeIdentity {
 
 /**
  * 判断当前是否为 iframe 嵌入模式
+ * [定制] 已移除 iframe 嵌套/域名限制，永远返回 false
  */
 export function isIframeMode(): boolean {
-  const identity = getIframeIdentity();
-  return !!(identity.companyId && identity.phone);
+  return false;
 }
 
 /**
  * 获取需要附加到请求头的身份信息
+ * [定制] 已移除 iframe 逻辑，不再附加任何身份 Header
  */
 export function getIframeHeaders(): Record<string, string> {
-  const identity = getIframeIdentity();
-  const headers: Record<string, string> = {};
-  if (identity.companyId) headers["x-company-id"] = identity.companyId;
-  if (identity.phone) headers["x-user-phone"] = identity.phone;
-  return headers;
+  return {};
 }
 
 /**

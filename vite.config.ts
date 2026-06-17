@@ -170,15 +170,8 @@ export default defineConfig({
   },
   server: {
     host: true,
-    allowedHosts: [
-      ".manuspre.computer",
-      ".manus.computer",
-      ".manus-asia.computer",
-      ".manuscomputer.ai",
-      ".manusvm.computer",
-      "localhost",
-      "127.0.0.1",
-    ],
+    // 已移除域名白名单限制：允许任意域名访问（不再限制 host）
+    allowedHosts: true,
     fs: {
       strict: true,
       deny: ["**/.*"],

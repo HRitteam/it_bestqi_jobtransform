@@ -19,6 +19,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/apiFetch";
+import { FIXED_INDUSTRY, FIXED_COMPANY_NAME, FIXED_COMPANY_PROFILE } from "@shared/bestqiConstants";
 
 interface ExtractedInfo {
   jobTitle: string;
@@ -58,8 +59,9 @@ export default function ConfirmPage() {
   const [showExtra, setShowExtra] = useState(false);
   const [info, setInfo] = useState<ExtractedInfo>({
     jobTitle: "",
-    company: "",
-    industry: "",
+    // [定制] 公司名称与行业固定
+    company: FIXED_COMPANY_NAME,
+    industry: FIXED_INDUSTRY,
     department: "",
     responsibilities: "",
     teamSize: "",
@@ -125,8 +127,9 @@ export default function ConfirmPage() {
       const extracted = data.extractedInfo || {};
       setInfo({
         jobTitle: extracted.jobTitle || data.jobTitle || "",
-        company: extracted.company || data.company || "",
-        industry: extracted.industry || data.industry || "",
+        // [定制] 公司名称与行业固定，不取 AI 提取值
+        company: FIXED_COMPANY_NAME,
+        industry: FIXED_INDUSTRY,
         department: extracted.department || "",
         responsibilities: extracted.responsibilities || "",
         teamSize: extracted.teamSize || "",
@@ -353,33 +356,48 @@ export default function ConfirmPage() {
             />
           </div>
 
-          {/* Company */}
+          {/* Company - 定制：固定只读 */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">
               公司名称
-              <span className="text-muted-foreground text-xs ml-2">选填</span>
+              <span className="text-muted-foreground text-xs ml-2">固定（不可修改）</span>
             </label>
             <input
               type="text"
-              value={info.company}
-              onChange={(e) => setInfo({ ...info, company: e.target.value })}
-              placeholder="如：阿里巴巴、字节跳动（可留空）"
-              className="w-full px-4 py-2.5 bg-input border border-border rounded-xl text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+              value={FIXED_COMPANY_NAME}
+              readOnly
+              disabled
+              className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none cursor-not-allowed"
             />
           </div>
 
-          {/* Industry */}
+          {/* Industry - 定制：固定只读 */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">
               所属行业
-              <span className="text-muted-foreground text-xs ml-2">选填，留空将由AI推断</span>
+              <span className="text-muted-foreground text-xs ml-2">固定（不可修改）</span>
             </label>
             <input
               type="text"
-              value={info.industry}
-              onChange={(e) => setInfo({ ...info, industry: e.target.value })}
-              placeholder="如：互联网、金融、制造业"
-              className="w-full px-4 py-2.5 bg-input border border-border rounded-xl text-foreground text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+              value={FIXED_INDUSTRY}
+              readOnly
+              disabled
+              className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none cursor-not-allowed"
+            />
+          </div>
+
+          {/* Company Profile - 定制：固定只读公司简介 */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">
+              公司简介
+              <span className="text-muted-foreground text-xs ml-2">固定（不可修改）</span>
+            </label>
+            <textarea
+              value={FIXED_COMPANY_PROFILE}
+              readOnly
+              disabled
+              rows={8}
+              className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none resize-none cursor-not-allowed leading-relaxed"
             />
           </div>
 

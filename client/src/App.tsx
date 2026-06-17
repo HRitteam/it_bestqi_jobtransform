@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import AppLayout from "./components/AppLayout";
 import AdminGuard from "./components/AdminGuard";
+import PasswordGate from "./components/PasswordGate";
 import Home from "./pages/Home";
 import { lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -94,7 +95,10 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster richColors position="top-right" />
-          <Router />
+          {/* [定制] 全局密码登录门：访问前必须输入密码 */}
+          <PasswordGate>
+            <Router />
+          </PasswordGate>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

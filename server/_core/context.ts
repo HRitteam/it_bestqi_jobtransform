@@ -16,25 +16,19 @@ export async function createContext(
 ): Promise<TrpcContext> {
   let user: User | null = null;
 
-  // 优先使用 iframe 身份识别（中间件已注入）
-  const iframeUser = (opts.req as any).iframeUser;
-  if (iframeUser) {
-    user = iframeUser;
+  // [定制] 已移除 iframe 身份识别分支；优先检查平台管理员 cookie（密码登录门签发）
+  const isPlatformAdmin = await checkPlatformAdmin(
+    opts.req.headers.cookie
+  );
+  if (isPlatformAdmin) {
+    user = createPlatformAdminUser();
   } else {
-    // 检查平台管理员 cookie
-    const isPlatformAdmin = await checkPlatformAdmin(
-      opts.req.headers.cookie
-    );
-    if (isPlatformAdmin) {
-      user = createPlatformAdminUser();
-    } else {
-      // 回退到原有 OAuth/Cookie 认证
-      try {
-        user = await sdk.authenticateRequest(opts.req);
-      } catch (error) {
-        // Authentication is optional for public procedures.
-        user = null;
-      }
+    // 回退到原有 OAuth/Cookie 认证
+    try {
+      user = await sdk.authenticateRequest(opts.req);
+    } catch (error) {
+      // Authentication is optional for public procedures.
+      user = null;
     }
   }
 
@@ -42,7 +36,7 @@ export async function createContext(
     req: opts.req,
     res: opts.res,
     user,
-    companyId: (opts.req as any).companyId || user?.companyId || undefined,
-    userPhone: (opts.req as any).userPhone || user?.phone || undefined,
+    companyId: user?.companyId || undefined,
+    userPhone: user?.phone || undefined,
   };
 }
