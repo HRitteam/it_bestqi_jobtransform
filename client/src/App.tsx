@@ -6,7 +6,6 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import AppLayout from "./components/AppLayout";
 import AdminGuard from "./components/AdminGuard";
-import PasswordGate from "./components/PasswordGate";
 import Home from "./pages/Home";
 import { lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -58,27 +57,45 @@ function Router() {
         <AnimatePresence mode="wait">
           <AnimatedPage key={location}>
             <Switch location={location}>
+              {/* ===== 普通用户可访问页面（无需密码）===== */}
               <Route path="/" component={Home} />
               <Route path="/confirm/:id" component={ConfirmPage} />
               <Route path="/analysis/:id" component={AnalysisPage} />
               <Route path="/report/:id" component={ReportPage} />
-              <Route path="/history" component={HistoryPage} />
-              <Route path="/batch" component={BatchPage} />
               <Route path="/share/:token" component={SharedReportPage} />
               <Route path="/share" component={SharePage} />
               <Route path="/invite/:code" component={InvitePage} />
               <Route path="/about" component={AboutPage} />
-              <Route path="/department-report" component={DepartmentReportPage} />
-              <Route path="/dashboard" component={DashboardPage} />
-              <Route path="/compare" component={ComparePage} />
-              <Route path="/brand-settings" component={BrandSettingsPage} />
-              <Route path="/admin-tools" component={AdminToolsPage} />
+
+              {/* ===== 管理后台页面（需管理员密码 / 带 ?adminPwd= 参数）===== */}
+              <Route path="/dashboard">
+                <AdminGuard><DashboardPage /></AdminGuard>
+              </Route>
+              <Route path="/history">
+                <AdminGuard><HistoryPage /></AdminGuard>
+              </Route>
+              <Route path="/batch">
+                <AdminGuard><BatchPage /></AdminGuard>
+              </Route>
+              <Route path="/compare">
+                <AdminGuard><ComparePage /></AdminGuard>
+              </Route>
+              <Route path="/department-report">
+                <AdminGuard><DepartmentReportPage /></AdminGuard>
+              </Route>
+              <Route path="/brand-settings">
+                <AdminGuard><BrandSettingsPage /></AdminGuard>
+              </Route>
+              <Route path="/admin-tools">
+                <AdminGuard><AdminToolsPage /></AdminGuard>
+              </Route>
               <Route path="/llm-manager">
                 <AdminGuard><LlmManagerPage /></AdminGuard>
               </Route>
               <Route path="/llm-logs">
                 <AdminGuard><LlmLogsPage /></AdminGuard>
               </Route>
+
               <Route path="/404" component={NotFound} />
               <Route component={NotFound} />
             </Switch>
@@ -95,10 +112,10 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster richColors position="top-right" />
-          {/* [定制] 全局密码登录门：访问前必须输入密码 */}
-          <PasswordGate>
-            <Router />
-          </PasswordGate>
+          {/* [定制] 普通用户无需密码即可访问首页等业务页面；
+              管理后台页面由各自的 AdminGuard 守卫（密码 bestqiai2026，
+              或通过 URL 参数 ?adminPwd=bestqiai2026 免密进入）。 */}
+          <Router />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

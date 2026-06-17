@@ -553,7 +553,7 @@ __export(llmRouter_exports, {
   invokeWithRoutingCompat: () => invokeWithRoutingCompat,
   isRetryableError: () => isRetryableError
 });
-import { eq as eq2, and as and2, asc } from "drizzle-orm";
+import { eq as eq3, and as and2, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 async function getActiveModelsSorted() {
   const now = Date.now();
@@ -564,7 +564,7 @@ async function getActiveModelsSorted() {
   if (!db) {
     return [];
   }
-  const models = await db.select().from(llmModels).where(and2(eq2(llmModels.isActive, 1), eq2(llmModels.isDeleted, 0))).orderBy(asc(llmModels.priority));
+  const models = await db.select().from(llmModels).where(and2(eq3(llmModels.isActive, 1), eq3(llmModels.isDeleted, 0))).orderBy(asc(llmModels.priority));
   cachedModels = models;
   cacheExpireAt = now + CACHE_TTL_MS;
   return models;
@@ -1371,13 +1371,46 @@ init_db();
 init_schema();
 import multer from "multer";
 import { nanoid as nanoid2 } from "nanoid";
-import { eq as eq4 } from "drizzle-orm";
+
+// server/guestUser.ts
+init_db();
+init_schema();
+import { eq as eq2 } from "drizzle-orm";
+var DEFAULT_GUEST_OPEN_ID = "bestqi_guest_default";
+var cachedGuestUser = null;
+async function getOrCreateGuestUser() {
+  if (cachedGuestUser) return cachedGuestUser;
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    const existing = await db.select().from(users).where(eq2(users.openId, DEFAULT_GUEST_OPEN_ID)).limit(1);
+    if (existing.length > 0) {
+      cachedGuestUser = existing[0];
+      return cachedGuestUser;
+    }
+    await db.insert(users).values({
+      openId: DEFAULT_GUEST_OPEN_ID,
+      name: "\u666E\u901A\u7528\u6237",
+      role: "user",
+      tier: "free"
+    });
+    const created = await db.select().from(users).where(eq2(users.openId, DEFAULT_GUEST_OPEN_ID)).limit(1);
+    cachedGuestUser = created[0] || null;
+    return cachedGuestUser;
+  } catch (e) {
+    console.error("[guestUser] getOrCreateGuestUser failed:", e);
+    return null;
+  }
+}
+
+// server/apiRoutes.ts
+import { eq as eq5 } from "drizzle-orm";
 
 // server/analysis.ts
 init_llm();
 init_db();
 init_schema();
-import { eq as eq3 } from "drizzle-orm";
+import { eq as eq4 } from "drizzle-orm";
 
 // server/toolCatalog.ts
 var CATEGORY_LABELS = {
@@ -2986,7 +3019,7 @@ async function runAnalysisChain(input, reportId, onProgress, llmContext) {
     try {
       onProgress(step.id, step.title, "active");
       if (db) {
-        await db.update(reports).set({ currentStep: step.id, status: "analyzing" }).where(eq3(reports.reportId, reportId));
+        await db.update(reports).set({ currentStep: step.id, status: "analyzing" }).where(eq4(reports.reportId, reportId));
       }
       const userPrompt = step.prompt(input, results);
       const schemaInstruction = `
@@ -3064,7 +3097,7 @@ ${JSON.stringify(step.schema.schema, null, 2)}`;
       currentStep: hasStep9Failed ? 8 : 9,
       reportData: results,
       completedAt: /* @__PURE__ */ new Date()
-    }).where(eq3(reports.reportId, reportId));
+    }).where(eq4(reports.reportId, reportId));
   }
   return results;
 }
@@ -3300,10 +3333,11 @@ async function resolveUser(req) {
   const adminUser = await authenticateAdmin(req);
   if (adminUser) return adminUser;
   try {
-    return await sdk.authenticateRequest(req);
+    const oauthUser = await sdk.authenticateRequest(req);
+    if (oauthUser) return oauthUser;
   } catch {
-    return null;
   }
+  return await getOrCreateGuestUser();
 }
 function registerApiRoutes(app) {
   app.post("/api/analysis/submit", upload.array("files", 10), async (req, res) => {
@@ -3566,7 +3600,7 @@ ${text2}`;
         res.status(500).json({ error: "Database unavailable" });
         return;
       }
-      const existing = await db.select().from(reports).where(eq4(reports.reportId, reportId)).limit(1);
+      const existing = await db.select().from(reports).where(eq5(reports.reportId, reportId)).limit(1);
       if (existing.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -3575,7 +3609,7 @@ ${text2}`;
         res.status(403).json({ error: "Forbidden" });
         return;
       }
-      const reportFiles = await db.select().from(files).where(eq4(files.reportId, reportId));
+      const reportFiles = await db.select().from(files).where(eq5(files.reportId, reportId));
       const fileContents = reportFiles.map((f) => f.extractedText).filter(Boolean);
       const inputText = [
         jobTitle ? `\u5C97\u4F4D\u540D\u79F0\uFF1A${jobTitle}` : "",
@@ -3610,7 +3644,7 @@ ${text2}`;
         industry: industry || null,
         inputText,
         extractedInfo: { jobTitle, company, industry, companyProfile: FIXED_COMPANY_PROFILE, department, responsibilities, teamSize, currentTools, painPoints, budget, salaryRange }
-      }).where(eq4(reports.reportId, reportId));
+      }).where(eq5(reports.reportId, reportId));
       const companyId = user.companyId || void 0;
       startAnalysis(reportId, input, { companyId, userId: user.id, phone: user.phone || void 0 });
       res.json({ reportId });
@@ -3632,7 +3666,7 @@ ${text2}`;
         res.status(500).json({ error: "Database unavailable" });
         return;
       }
-      const result = await db.select().from(reports).where(eq4(reports.reportId, reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq5(reports.reportId, reportId)).limit(1);
       if (result.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -3644,7 +3678,7 @@ ${text2}`;
       }
       let filename = report.extractedInfo?.filename || null;
       if (!filename) {
-        const fileRecords = await db.select({ filename: files.filename }).from(files).where(eq4(files.reportId, reportId)).limit(1);
+        const fileRecords = await db.select({ filename: files.filename }).from(files).where(eq5(files.reportId, reportId)).limit(1);
         filename = fileRecords[0]?.filename || null;
       }
       res.json({
@@ -3676,7 +3710,7 @@ ${text2}`;
         res.status(500).json({ error: "Database unavailable" });
         return;
       }
-      const result = await db.select().from(reports).where(eq4(reports.reportId, reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq5(reports.reportId, reportId)).limit(1);
       if (result.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -3685,8 +3719,8 @@ ${text2}`;
         res.status(403).json({ error: "Forbidden" });
         return;
       }
-      await db.delete(reports).where(eq4(reports.reportId, reportId));
-      await db.delete(files).where(eq4(files.reportId, reportId));
+      await db.delete(reports).where(eq5(reports.reportId, reportId));
+      await db.delete(files).where(eq5(files.reportId, reportId));
       res.json({ success: true });
     } catch (error) {
       console.error("Delete error:", error);
@@ -3738,7 +3772,7 @@ ${text2}`;
     const result = await db.select({
       status: reports.status,
       currentStep: reports.currentStep
-    }).from(reports).where(eq4(reports.reportId, reportId)).limit(1);
+    }).from(reports).where(eq5(reports.reportId, reportId)).limit(1);
     if (result.length === 0) {
       res.status(404).json({ error: "Report not found" });
       return;
@@ -3772,7 +3806,7 @@ ${text2}`;
         res.status(500).json({ error: "Database unavailable" });
         return;
       }
-      const result = await db.select().from(reports).where(eq4(reports.reportId, reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq5(reports.reportId, reportId)).limit(1);
       if (result.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -3840,7 +3874,7 @@ ${JSON.stringify(step9.schema.schema, null, 2)}`;
       } else {
         reportData.push(step9Result);
       }
-      await db.update(reports).set({ reportData, currentStep: 9 }).where(eq4(reports.reportId, reportId));
+      await db.update(reports).set({ reportData, currentStep: 9 }).where(eq5(reports.reportId, reportId));
       res.json({ success: true, training: parsed });
     } catch (error) {
       console.error("[Regenerate Training] Error:", error);
@@ -3865,7 +3899,7 @@ ${JSON.stringify(step9.schema.schema, null, 2)}`;
         res.status(500).json({ error: "Database unavailable" });
         return;
       }
-      const result = await db.select().from(reports).where(eq4(reports.reportId, reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq5(reports.reportId, reportId)).limit(1);
       if (result.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -3929,7 +3963,7 @@ ${JSON.stringify(stepDef.schema.schema, null, 2)}`;
         reportData.push({ step: stepId, title: stepDef.title, data: parsed });
         reportData.sort((a, b) => a.step - b.step);
       }
-      await db.update(reports).set({ reportData }).where(eq4(reports.reportId, reportId));
+      await db.update(reports).set({ reportData }).where(eq5(reports.reportId, reportId));
       res.json({ success: true, stepId, data: parsed });
     } catch (error) {
       console.error("[Retry Step] Error:", error);
@@ -3940,7 +3974,7 @@ ${JSON.stringify(stepDef.schema.schema, null, 2)}`;
 async function checkExistingStatus(reportId, res) {
   const db = await getDb();
   if (!db) return;
-  const result = await db.select().from(reports).where(eq4(reports.reportId, reportId)).limit(1);
+  const result = await db.select().from(reports).where(eq5(reports.reportId, reportId)).limit(1);
   if (result.length > 0 && result[0].status === "completed") {
     res.write(`data: ${JSON.stringify({ type: "completed" })}
 
@@ -4270,7 +4304,7 @@ function startAnalysis(reportId, input, llmContext) {
 // server/exportRoutes.ts
 init_db();
 init_schema();
-import { eq as eq8, inArray as inArray2 } from "drizzle-orm";
+import { eq as eq9, inArray as inArray2 } from "drizzle-orm";
 
 // server/_core/systemRouter.ts
 import { z } from "zod";
@@ -4420,7 +4454,7 @@ var systemRouter = router({
 init_db();
 init_schema();
 import { TRPCError as TRPCError3 } from "@trpc/server";
-import { and as and4, eq as eq5, desc } from "drizzle-orm";
+import { and as and4, eq as eq6, desc } from "drizzle-orm";
 import { z as z2 } from "zod";
 init_crypto();
 init_llmRouter();
@@ -4436,7 +4470,7 @@ var llmModelRouter = router({
   ).query(async ({ input }) => {
     const db = await getDb();
     if (!db) return [];
-    const conditions = input?.includeDeleted ? [] : [eq5(llmModels.isDeleted, 0)];
+    const conditions = input?.includeDeleted ? [] : [eq6(llmModels.isDeleted, 0)];
     const models = await db.select().from(llmModels).where(conditions.length > 0 ? and4(...conditions) : void 0).orderBy(llmModels.priority, desc(llmModels.createdAt));
     return models.map((model) => {
       let maskedKey = "****";
@@ -4458,7 +4492,7 @@ var llmModelRouter = router({
   getById: adminProcedure.input(z2.object({ id: z2.number() })).query(async ({ input }) => {
     const db = await getDb();
     if (!db) return null;
-    const result = await db.select().from(llmModels).where(eq5(llmModels.id, input.id)).limit(1);
+    const result = await db.select().from(llmModels).where(eq6(llmModels.id, input.id)).limit(1);
     if (result.length === 0) return null;
     const model = result[0];
     let maskedKey = "****";
@@ -4493,7 +4527,7 @@ var llmModelRouter = router({
   ).mutation(async ({ input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "\u6570\u636E\u5E93\u4E0D\u53EF\u7528" });
-    const existing = await db.select({ id: llmModels.id }).from(llmModels).where(eq5(llmModels.modelCode, input.modelCode)).limit(1);
+    const existing = await db.select({ id: llmModels.id }).from(llmModels).where(eq6(llmModels.modelCode, input.modelCode)).limit(1);
     if (existing.length > 0) {
       throw new TRPCError3({
         code: "CONFLICT",
@@ -4545,7 +4579,7 @@ var llmModelRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "\u6570\u636E\u5E93\u4E0D\u53EF\u7528" });
     const { id, apiKey, ...updateFields } = input;
-    const existing = await db.select().from(llmModels).where(eq5(llmModels.id, id)).limit(1);
+    const existing = await db.select().from(llmModels).where(eq6(llmModels.id, id)).limit(1);
     if (existing.length === 0) {
       throw new TRPCError3({ code: "NOT_FOUND", message: "\u6A21\u578B\u4E0D\u5B58\u5728" });
     }
@@ -4568,7 +4602,7 @@ var llmModelRouter = router({
     if (Object.keys(updateSet).length === 0) {
       return { success: true, message: "\u65E0\u9700\u66F4\u65B0" };
     }
-    await db.update(llmModels).set(updateSet).where(eq5(llmModels.id, id));
+    await db.update(llmModels).set(updateSet).where(eq6(llmModels.id, id));
     invalidateModelCache();
     return { success: true };
   }),
@@ -4584,7 +4618,7 @@ var llmModelRouter = router({
   ).mutation(async ({ input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "\u6570\u636E\u5E93\u4E0D\u53EF\u7528" });
-    await db.update(llmModels).set({ isActive: input.isActive }).where(eq5(llmModels.id, input.id));
+    await db.update(llmModels).set({ isActive: input.isActive }).where(eq6(llmModels.id, input.id));
     invalidateModelCache();
     return { success: true };
   }),
@@ -4595,7 +4629,7 @@ var llmModelRouter = router({
   testConnection: adminProcedure.input(z2.object({ id: z2.number() })).mutation(async ({ input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "\u6570\u636E\u5E93\u4E0D\u53EF\u7528" });
-    const result = await db.select().from(llmModels).where(eq5(llmModels.id, input.id)).limit(1);
+    const result = await db.select().from(llmModels).where(eq6(llmModels.id, input.id)).limit(1);
     if (result.length === 0) {
       throw new TRPCError3({ code: "NOT_FOUND", message: "\u6A21\u578B\u4E0D\u5B58\u5728" });
     }
@@ -4652,11 +4686,11 @@ var llmModelRouter = router({
   delete: adminProcedure.input(z2.object({ id: z2.number() })).mutation(async ({ input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "\u6570\u636E\u5E93\u4E0D\u53EF\u7528" });
-    const existing = await db.select().from(llmModels).where(eq5(llmModels.id, input.id)).limit(1);
+    const existing = await db.select().from(llmModels).where(eq6(llmModels.id, input.id)).limit(1);
     if (existing.length === 0) {
       throw new TRPCError3({ code: "NOT_FOUND", message: "\u6A21\u578B\u4E0D\u5B58\u5728" });
     }
-    await db.update(llmModels).set({ isDeleted: 1, isActive: 0 }).where(eq5(llmModels.id, input.id));
+    await db.update(llmModels).set({ isDeleted: 1, isActive: 0 }).where(eq6(llmModels.id, input.id));
     invalidateModelCache();
     return { success: true };
   })
@@ -4665,7 +4699,7 @@ var llmModelRouter = router({
 // server/llmLogRouter.ts
 init_db();
 init_schema();
-import { and as and5, eq as eq6, gte as gte2, lte, like as like2, desc as desc2, sql as sql4, count } from "drizzle-orm";
+import { and as and5, eq as eq7, gte as gte2, lte, like as like2, desc as desc2, sql as sql4, count } from "drizzle-orm";
 import { z as z3 } from "zod";
 var llmLogRouter = router({
   /**
@@ -4701,25 +4735,25 @@ var llmLogRouter = router({
     if (!db) return { data: [], total: 0, page: input.page, pageSize: input.pageSize };
     const conditions = [];
     if (input.companyId) {
-      conditions.push(eq6(llmCallLogs.companyId, input.companyId));
+      conditions.push(eq7(llmCallLogs.companyId, input.companyId));
     }
     if (input.phone) {
       conditions.push(like2(llmCallLogs.phone, `%${input.phone}%`));
     }
     if (input.feature) {
-      conditions.push(eq6(llmCallLogs.feature, input.feature));
+      conditions.push(eq7(llmCallLogs.feature, input.feature));
     }
     if (input.modelCode) {
-      conditions.push(eq6(llmCallLogs.modelCode, input.modelCode));
+      conditions.push(eq7(llmCallLogs.modelCode, input.modelCode));
     }
     if (input.provider) {
-      conditions.push(eq6(llmCallLogs.provider, input.provider));
+      conditions.push(eq7(llmCallLogs.provider, input.provider));
     }
     if (input.success !== void 0) {
-      conditions.push(eq6(llmCallLogs.success, input.success));
+      conditions.push(eq7(llmCallLogs.success, input.success));
     }
     if (input.isSwitched !== void 0) {
-      conditions.push(eq6(llmCallLogs.isSwitched, input.isSwitched));
+      conditions.push(eq7(llmCallLogs.isSwitched, input.isSwitched));
     }
     if (input.startTime) {
       conditions.push(gte2(llmCallLogs.requestTime, new Date(input.startTime)));
@@ -4757,7 +4791,7 @@ var llmLogRouter = router({
   getById: adminProcedure.input(z3.object({ id: z3.number() })).query(async ({ input }) => {
     const db = await getDb();
     if (!db) return null;
-    const result = await db.select().from(llmCallLogs).where(eq6(llmCallLogs.id, input.id)).limit(1);
+    const result = await db.select().from(llmCallLogs).where(eq7(llmCallLogs.id, input.id)).limit(1);
     return result[0] || null;
   }),
   /**
@@ -4785,11 +4819,11 @@ var llmLogRouter = router({
       };
     }
     const conditions = [];
-    if (input.companyId) conditions.push(eq6(llmCallLogs.companyId, input.companyId));
-    if (input.userId) conditions.push(eq6(llmCallLogs.userId, input.userId));
-    if (input.feature) conditions.push(eq6(llmCallLogs.feature, input.feature));
-    if (input.modelCode) conditions.push(eq6(llmCallLogs.modelCode, input.modelCode));
-    if (input.provider) conditions.push(eq6(llmCallLogs.provider, input.provider));
+    if (input.companyId) conditions.push(eq7(llmCallLogs.companyId, input.companyId));
+    if (input.userId) conditions.push(eq7(llmCallLogs.userId, input.userId));
+    if (input.feature) conditions.push(eq7(llmCallLogs.feature, input.feature));
+    if (input.modelCode) conditions.push(eq7(llmCallLogs.modelCode, input.modelCode));
+    if (input.provider) conditions.push(eq7(llmCallLogs.provider, input.provider));
     if (input.startTime) conditions.push(gte2(llmCallLogs.requestTime, new Date(input.startTime)));
     if (input.endTime) conditions.push(lte(llmCallLogs.requestTime, new Date(input.endTime)));
     const whereClause = conditions.length > 0 ? and5(...conditions) : void 0;
@@ -4863,7 +4897,7 @@ init_db();
 init_schema();
 import { TRPCError as TRPCError4 } from "@trpc/server";
 import { z as z4 } from "zod";
-import { eq as eq7, desc as desc3, and as and6 } from "drizzle-orm";
+import { eq as eq8, desc as desc3, and as and6 } from "drizzle-orm";
 import { nanoid as nanoid3 } from "nanoid";
 
 // server/toolsDatabase.ts
@@ -5003,9 +5037,9 @@ var appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return [];
-      const conditions = [eq7(reports.userId, ctx.user.id)];
+      const conditions = [eq8(reports.userId, ctx.user.id)];
       if (ctx.companyId) {
-        conditions.push(eq7(reports.companyId, ctx.companyId));
+        conditions.push(eq8(reports.companyId, ctx.companyId));
       }
       const result = await db.select().from(reports).where(and6(...conditions)).orderBy(desc3(reports.createdAt)).limit(50);
       return result;
@@ -5013,14 +5047,14 @@ var appRouter = router({
     get: publicProcedure.input(z4.object({ reportId: z4.string(), token: z4.string().optional() })).query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
-      const result = await db.select().from(reports).where(eq7(reports.reportId, input.reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq8(reports.reportId, input.reportId)).limit(1);
       if (result.length === 0) return null;
       const report = result[0];
       if (input.token) {
         if (report.shareToken && report.shareToken === input.token) {
           return report;
         }
-        const dist = await db.select().from(reportDistributions).where(and6(eq7(reportDistributions.reportId, input.reportId), eq7(reportDistributions.linkToken, input.token))).limit(1);
+        const dist = await db.select().from(reportDistributions).where(and6(eq8(reportDistributions.reportId, input.reportId), eq8(reportDistributions.linkToken, input.token))).limit(1);
         if (dist.length > 0) {
           return report;
         }
@@ -5038,23 +5072,23 @@ var appRouter = router({
     getByShareToken: publicProcedure.input(z4.object({ token: z4.string() })).query(async ({ input }) => {
       const db = await getDb();
       if (!db) return null;
-      const result = await db.select().from(reports).where(eq7(reports.shareToken, input.token)).limit(1);
+      const result = await db.select().from(reports).where(eq8(reports.shareToken, input.token)).limit(1);
       return result.length > 0 ? result[0] : null;
     }),
     generateShareLink: protectedProcedure.input(z4.object({ reportId: z4.string() })).mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const token = nanoid3(16);
-      const conditions = [eq7(reports.reportId, input.reportId), eq7(reports.userId, ctx.user.id)];
-      if (ctx.companyId) conditions.push(eq7(reports.companyId, ctx.companyId));
+      const conditions = [eq8(reports.reportId, input.reportId), eq8(reports.userId, ctx.user.id)];
+      if (ctx.companyId) conditions.push(eq8(reports.companyId, ctx.companyId));
       await db.update(reports).set({ isPublic: 1, shareToken: token }).where(and6(...conditions));
       return { token };
     }),
     delete: protectedProcedure.input(z4.object({ reportId: z4.string() })).mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const conditions = [eq7(reports.reportId, input.reportId), eq7(reports.userId, ctx.user.id)];
-      if (ctx.companyId) conditions.push(eq7(reports.companyId, ctx.companyId));
+      const conditions = [eq8(reports.reportId, input.reportId), eq8(reports.userId, ctx.user.id)];
+      if (ctx.companyId) conditions.push(eq8(reports.companyId, ctx.companyId));
       await db.delete(reports).where(and6(...conditions));
       return { success: true };
     })
@@ -5063,14 +5097,14 @@ var appRouter = router({
     profile: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return ctx.user;
-      const result = await db.select().from(users).where(eq7(users.id, ctx.user.id)).limit(1);
+      const result = await db.select().from(users).where(eq8(users.id, ctx.user.id)).limit(1);
       return result[0] || ctx.user;
     }),
     stats: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return { totalReports: 0, completedReports: 0, inviteCount: 0 };
-      const conditions = [eq7(reports.userId, ctx.user.id)];
-      if (ctx.companyId) conditions.push(eq7(reports.companyId, ctx.companyId));
+      const conditions = [eq8(reports.userId, ctx.user.id)];
+      if (ctx.companyId) conditions.push(eq8(reports.companyId, ctx.companyId));
       const allReports = await db.select().from(reports).where(and6(...conditions));
       const completed = allReports.filter((r) => r.status === "completed");
       return {
@@ -5094,19 +5128,19 @@ var appRouter = router({
     myInvites: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return [];
-      return db.select().from(invitations).where(eq7(invitations.inviterId, ctx.user.id)).orderBy(desc3(invitations.createdAt));
+      return db.select().from(invitations).where(eq8(invitations.inviterId, ctx.user.id)).orderBy(desc3(invitations.createdAt));
     }),
     accept: protectedProcedure.input(z4.object({ inviteCode: z4.string() })).mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const inv = await db.select().from(invitations).where(and6(eq7(invitations.inviteCode, input.inviteCode), eq7(invitations.status, "pending"))).limit(1);
+      const inv = await db.select().from(invitations).where(and6(eq8(invitations.inviteCode, input.inviteCode), eq8(invitations.status, "pending"))).limit(1);
       if (inv.length === 0) return { success: false, message: "\u9080\u8BF7\u7801\u65E0\u6548\u6216\u5DF2\u4F7F\u7528" };
       const invitation = inv[0];
       if (invitation.inviterId === ctx.user.id) return { success: false, message: "\u4E0D\u80FD\u4F7F\u7528\u81EA\u5DF1\u7684\u9080\u8BF7\u7801" };
-      await db.update(invitations).set({ inviteeId: ctx.user.id, status: "accepted" }).where(eq7(invitations.id, invitation.id));
-      const inviter = await db.select().from(users).where(eq7(users.id, invitation.inviterId)).limit(1);
+      await db.update(invitations).set({ inviteeId: ctx.user.id, status: "accepted" }).where(eq8(invitations.id, invitation.id));
+      const inviter = await db.select().from(users).where(eq8(users.id, invitation.inviterId)).limit(1);
       if (inviter.length > 0) {
-        await db.update(users).set({ inviteCount: (inviter[0].inviteCount || 0) + 1 }).where(eq7(users.id, invitation.inviterId));
+        await db.update(users).set({ inviteCount: (inviter[0].inviteCount || 0) + 1 }).where(eq8(users.id, invitation.inviterId));
       }
       return { success: true };
     })
@@ -5293,7 +5327,7 @@ var appRouter = router({
     list: protectedProcedure.input(z4.object({ reportId: z4.string() })).query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      return db.select().from(reportFeedback).where(eq7(reportFeedback.reportId, input.reportId)).orderBy(desc3(reportFeedback.createdAt));
+      return db.select().from(reportFeedback).where(eq8(reportFeedback.reportId, input.reportId)).orderBy(desc3(reportFeedback.createdAt));
     })
   }),
   // Brand settings (P1-03)
@@ -5301,15 +5335,15 @@ var appRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return null;
-      const result = await db.select().from(brandSettings).where(eq7(brandSettings.userId, ctx.user.id)).limit(1);
+      const result = await db.select().from(brandSettings).where(eq8(brandSettings.userId, ctx.user.id)).limit(1);
       return result[0] || null;
     }),
     save: protectedProcedure.input(z4.object({ logoUrl: z4.string().optional(), primaryColor: z4.string().optional(), footerText: z4.string().optional() })).mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const existing = await db.select().from(brandSettings).where(eq7(brandSettings.userId, ctx.user.id)).limit(1);
+      const existing = await db.select().from(brandSettings).where(eq8(brandSettings.userId, ctx.user.id)).limit(1);
       if (existing.length > 0) {
-        await db.update(brandSettings).set({ logoUrl: input.logoUrl, primaryColor: input.primaryColor, footerText: input.footerText }).where(eq7(brandSettings.userId, ctx.user.id));
+        await db.update(brandSettings).set({ logoUrl: input.logoUrl, primaryColor: input.primaryColor, footerText: input.footerText }).where(eq8(brandSettings.userId, ctx.user.id));
       } else {
         await db.insert(brandSettings).values({ userId: ctx.user.id, logoUrl: input.logoUrl, primaryColor: input.primaryColor, footerText: input.footerText });
       }
@@ -5334,7 +5368,7 @@ var appRouter = router({
     list: protectedProcedure.input(z4.object({ reportId: z4.string() })).query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      return db.select().from(reportDistributions).where(eq7(reportDistributions.reportId, input.reportId)).orderBy(desc3(reportDistributions.createdAt));
+      return db.select().from(reportDistributions).where(eq8(reportDistributions.reportId, input.reportId)).orderBy(desc3(reportDistributions.createdAt));
     }),
     trackOpen: publicProcedure.input(z4.object({ token: z4.string(), progress: z4.number().optional() })).mutation(async ({ input }) => {
       const db = await getDb();
@@ -5342,9 +5376,9 @@ var appRouter = router({
       const now = /* @__PURE__ */ new Date();
       const updates = { lastReadAt: now };
       if (input.progress !== void 0) updates.readProgress = input.progress;
-      const existing = await db.select().from(reportDistributions).where(eq7(reportDistributions.linkToken, input.token)).limit(1);
+      const existing = await db.select().from(reportDistributions).where(eq8(reportDistributions.linkToken, input.token)).limit(1);
       if (existing.length > 0 && !existing[0].openedAt) updates.openedAt = now;
-      await db.update(reportDistributions).set(updates).where(eq7(reportDistributions.linkToken, input.token));
+      await db.update(reportDistributions).set(updates).where(eq8(reportDistributions.linkToken, input.token));
       return { success: true };
     })
   }),
@@ -5511,15 +5545,15 @@ async function generatePdfInBackground(reportId, serverPort) {
   try {
     const db = await getDb();
     if (!db) throw new Error("DB unavailable");
-    await db.update(reports).set({ pdfStatus: "generating", pdfError: null }).where(eq8(reports.reportId, reportId));
-    const result = await db.select().from(reports).where(eq8(reports.reportId, reportId)).limit(1);
+    await db.update(reports).set({ pdfStatus: "generating", pdfError: null }).where(eq9(reports.reportId, reportId));
+    const result = await db.select().from(reports).where(eq9(reports.reportId, reportId)).limit(1);
     if (result.length === 0) throw new Error("Report not found");
     const report = result[0];
     let accessToken = report.shareToken;
     if (!accessToken) {
       const { nanoid: nanoid4 } = await import("nanoid");
       accessToken = nanoid4(24);
-      await db.update(reports).set({ shareToken: accessToken }).where(eq8(reports.reportId, reportId));
+      await db.update(reports).set({ shareToken: accessToken }).where(eq9(reports.reportId, reportId));
     }
     const pageUrl = `http://127.0.0.1:${serverPort}/report/${reportId}?token=${accessToken}&print=1`;
     console.log(`[PDF Export] Background task started for ${reportId}, URL: ${pageUrl}`);
@@ -5805,7 +5839,7 @@ async function generatePdfInBackground(reportId, serverPort) {
     const pdfFilePath = path2.join(pdfDir, safeFileName);
     fs2.writeFileSync(pdfFilePath, pdfNodeBuffer);
     const pdfUrl = `/exports/pdf/${safeFileName}`;
-    await db.update(reports).set({ pdfStatus: "ready", pdfUrl, pdfError: null }).where(eq8(reports.reportId, reportId));
+    await db.update(reports).set({ pdfStatus: "ready", pdfUrl, pdfError: null }).where(eq9(reports.reportId, reportId));
     console.log(`[PDF Export] Success! Report ${reportId} PDF stored at: ${pdfUrl}`);
   } catch (error) {
     console.error(`[PDF Export] Background task failed for ${reportId}:`, error);
@@ -5818,7 +5852,7 @@ async function generatePdfInBackground(reportId, serverPort) {
     try {
       const db = await getDb();
       if (db) {
-        await db.update(reports).set({ pdfStatus: "error", pdfError: error.message?.slice(0, 500) || "Unknown error" }).where(eq8(reports.reportId, reportId));
+        await db.update(reports).set({ pdfStatus: "error", pdfError: error.message?.slice(0, 500) || "Unknown error" }).where(eq9(reports.reportId, reportId));
       }
     } catch {
     }
@@ -5835,7 +5869,7 @@ function registerExportRoutes(app) {
       const reportId = req.params.reportId;
       const token = req.query.token;
       const force = req.query.force === "1";
-      const result = await db.select().from(reports).where(eq8(reports.reportId, reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq9(reports.reportId, reportId)).limit(1);
       if (result.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -5851,7 +5885,7 @@ function registerExportRoutes(app) {
         if (report.shareToken === token) {
           hasAccess = true;
         } else {
-          const dist = await db.select().from(reportDistributions).where(eq8(reportDistributions.linkToken, token)).limit(1);
+          const dist = await db.select().from(reportDistributions).where(eq9(reportDistributions.linkToken, token)).limit(1);
           if (dist.length > 0 && dist[0].reportId === reportId) {
             hasAccess = true;
           }
@@ -5887,7 +5921,7 @@ function registerExportRoutes(app) {
         return;
       }
       const reportId = req.params.reportId;
-      const result = await db.select().from(reports).where(eq8(reports.reportId, reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq9(reports.reportId, reportId)).limit(1);
       if (result.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -5912,7 +5946,7 @@ function registerExportRoutes(app) {
       }
       const reportId = req.params.reportId;
       const token = req.query.token;
-      const result = await db.select().from(reports).where(eq8(reports.reportId, reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq9(reports.reportId, reportId)).limit(1);
       if (result.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -5950,7 +5984,7 @@ function registerExportRoutes(app) {
         res.status(500).json({ error: "DB unavailable" });
         return;
       }
-      const result = await db.select().from(reports).where(eq8(reports.reportId, req.params.reportId)).limit(1);
+      const result = await db.select().from(reports).where(eq9(reports.reportId, req.params.reportId)).limit(1);
       if (result.length === 0) {
         res.status(404).json({ error: "Report not found" });
         return;
@@ -6218,6 +6252,9 @@ async function createContext(opts) {
       user = await sdk.authenticateRequest(opts.req);
     } catch (error) {
       user = null;
+    }
+    if (!user) {
+      user = await getOrCreateGuestUser();
     }
   }
   return {

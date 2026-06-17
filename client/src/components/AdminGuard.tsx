@@ -5,8 +5,8 @@
  * 如果未通过管理员密码验证，显示密码输入框让管理员验证。
  * 验证通过后放行，后端通过 cookie 中的 JWT 识别管理员身份。
  */
-import { useState, useCallback } from "react";
-import { isAdminMode } from "@/lib/adminAuth";
+import { useState, useCallback, useEffect } from "react";
+import { isAdminMode, checkAdminFromUrl } from "@/lib/adminAuth";
 import { Shield, Lock } from "lucide-react";
 
 interface AdminGuardProps {
@@ -15,9 +15,26 @@ interface AdminGuardProps {
 
 export default function AdminGuard({ children }: AdminGuardProps) {
   const [verified, setVerified] = useState(isAdminMode());
+  const [checking, setChecking] = useState(!isAdminMode());
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // [定制] 挂载时尝试从 URL 参数 ?adminPwd=xxx 免密验证（支持“特殊链接+密码传值”访问后台）
+  useEffect(() => {
+    if (verified) {
+      setChecking(false);
+      return;
+    }
+    let cancelled = false;
+    checkAdminFromUrl().then((ok) => {
+      if (cancelled) return;
+      if (ok) setVerified(true);
+      setChecking(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!password.trim()) {
@@ -52,6 +69,15 @@ export default function AdminGuard({ children }: AdminGuardProps) {
 
   if (verified) {
     return <>{children}</>;
+  }
+
+  // URL 参数免密校验中：先显示加载态，避免闪现密码框
+  if (checking) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   return (

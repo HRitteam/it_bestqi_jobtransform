@@ -48,21 +48,13 @@ interface NavGroup {
 }
 
 // Grouped navigation structure
+// [定制] 普通用户只能看到「开始分析」和「产品介绍」；
+// 其余后台功能菜单均需管理员验证通过（platformAdmin: true）后才显示。
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "工作台",
     items: [
       { icon: Home, label: "开始分析", path: "/" },
-      { icon: LayoutDashboard, label: "HR工作台", path: "/dashboard" },
-    ],
-  },
-  {
-    label: "分析",
-    items: [
-      { icon: FileText, label: "批量分析", path: "/batch" },
-      { icon: Clock, label: "历史记录", path: "/history" },
-      { icon: GitCompareArrows, label: "报告对比", path: "/compare" },
-      { icon: Building2, label: "部门报告", path: "/department-report" },
     ],
   },
   {
@@ -72,17 +64,16 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "管理",
-    adminOnly: true,
-    items: [
-      { icon: Palette, label: "品牌定制", path: "/brand-settings", adminOnly: true },
-      { icon: Wrench, label: "工具管理", path: "/admin-tools", adminOnly: true },
-    ],
-  },
-  {
-    label: "平台管理",
+    label: "管理后台",
     platformAdmin: true,
     items: [
+      { icon: LayoutDashboard, label: "HR工作台", path: "/dashboard", platformAdmin: true },
+      { icon: FileText, label: "批量分析", path: "/batch", platformAdmin: true },
+      { icon: Clock, label: "历史记录", path: "/history", platformAdmin: true },
+      { icon: GitCompareArrows, label: "报告对比", path: "/compare", platformAdmin: true },
+      { icon: Building2, label: "部门报告", path: "/department-report", platformAdmin: true },
+      { icon: Palette, label: "品牌定制", path: "/brand-settings", platformAdmin: true },
+      { icon: Wrench, label: "工具管理", path: "/admin-tools", platformAdmin: true },
       { icon: Database, label: "模型管理", path: "/llm-manager", platformAdmin: true },
       { icon: ScrollText, label: "调用日志", path: "/llm-logs", platformAdmin: true },
     ],
@@ -140,26 +131,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
     );
   }
 
-  // Filter groups based on role and admin verification
-  // iframe 嵌入模式下：始终隐藏管理和平台管理模块（普通会员不应看到）
-  // 独立访问模式下：平台管理需要 adminVerified，企业管理需要 admin 角色
-  const isInIframe = isIframeMode();
+  // [定制] 菜单可见性：未验证管理员只能看到普通菜单（开始分析/产品介绍）；
+  // 通过密码验证（或 ?adminPwd= 参数）后，adminVerified=true，显示全部后台菜单。
   const filteredGroups = NAV_GROUPS
     .filter((group) => {
-      // iframe 模式下隐藏所有管理类菜单
-      if (isInIframe && (group.platformAdmin || group.adminOnly)) return false;
-      // 独立模式：平台管理组需要管理员验证通过
       if (group.platformAdmin) return adminVerified;
-      // 企业管理组：仅 admin 角色显示
-      if (group.adminOnly) return user?.role === "admin";
       return true;
     })
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        if (isInIframe && (item.platformAdmin || item.adminOnly)) return false;
         if (item.platformAdmin) return adminVerified;
-        if (item.adminOnly) return user?.role === "admin";
         return true;
       }),
     }))
@@ -184,8 +166,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </span>
           </div>
           <div className="flex-1" />
-          {/* Admin mode indicator - iframe模式下隐藏 */}
-          {adminVerified && !isInIframe && (
+          {/* Admin mode indicator */}
+          {adminVerified && (
             <div className="flex items-center gap-2 mr-3">
               <Shield className="w-4 h-4 text-amber-500" />
               <span className="text-xs text-amber-500 font-medium hidden sm:inline">平台管理</span>

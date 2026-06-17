@@ -19,7 +19,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/apiFetch";
-import { FIXED_INDUSTRY, FIXED_COMPANY_NAME, FIXED_COMPANY_PROFILE } from "@shared/bestqiConstants";
+import { FIXED_INDUSTRY, FIXED_COMPANY_NAME } from "@shared/bestqiConstants";
 
 interface ExtractedInfo {
   jobTitle: string;
@@ -356,49 +356,11 @@ export default function ConfirmPage() {
             />
           </div>
 
-          {/* Company - 定制：固定只读 */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
-              公司名称
-              <span className="text-muted-foreground text-xs ml-2">固定（不可修改）</span>
-            </label>
-            <input
-              type="text"
-              value={FIXED_COMPANY_NAME}
-              readOnly
-              disabled
-              className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none cursor-not-allowed"
-            />
-          </div>
-
-          {/* Industry - 定制：固定只读 */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
-              所属行业
-              <span className="text-muted-foreground text-xs ml-2">固定（不可修改）</span>
-            </label>
-            <input
-              type="text"
-              value={FIXED_INDUSTRY}
-              readOnly
-              disabled
-              className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none cursor-not-allowed"
-            />
-          </div>
-
-          {/* Company Profile - 定制：固定只读公司简介 */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
-              公司简介
-              <span className="text-muted-foreground text-xs ml-2">固定（不可修改）</span>
-            </label>
-            <textarea
-              value={FIXED_COMPANY_PROFILE}
-              readOnly
-              disabled
-              rows={8}
-              className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none resize-none cursor-not-allowed leading-relaxed"
-            />
+          {/* [定制] 公司/行业/公司简介已固定并在后端自动注入，确认页不再展示这些字段，只保留岗位信息 */}
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-muted/40 border border-border">
+            <span className="text-xs text-muted-foreground">
+              分析基于固定企业背景：<span className="text-foreground font-medium">{FIXED_COMPANY_NAME}</span>（{FIXED_INDUSTRY}），请确认以下岗位信息。
+            </span>
           </div>
 
           {/* Department */}

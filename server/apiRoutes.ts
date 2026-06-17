@@ -3,6 +3,7 @@ import multer from "multer";
 import { nanoid } from "nanoid";
 import { getDb } from "./db";
 import { reports, files as filesTable } from "../drizzle/schema";
+import { getOrCreateGuestUser } from "./guestUser";
 import { eq, and, gte, sql, ne } from "drizzle-orm";
 import { runAnalysisChain, STEP_DEFINITIONS, sanitizeStepData } from "./analysis";
 import { getFilteredToolsForJob, formatFilteredTools, generateProhibitionRules } from "./toolCatalog";
@@ -55,7 +56,7 @@ const sseConnections = new Map<string, Response[]>();
 /**
  * 统一的 REST 接口用户身份识别
  * [定制] 已移除 iframe 身份分支
- * 优先级：平台管理员 cookie（密码登录门签发） > OAuth 会话 cookie
+ * 优先级：平台管理员 cookie（密码登录门签发） > OAuth 会话 cookie > 默认普通访客用户
  */
 async function resolveUser(req: Request): Promise<User | null> {
   // 1. 平台管理员 cookie
@@ -64,10 +65,14 @@ async function resolveUser(req: Request): Promise<User | null> {
 
   // 2. OAuth 会话 cookie
   try {
-    return await sdk.authenticateRequest(req);
+    const oauthUser = await sdk.authenticateRequest(req);
+    if (oauthUser) return oauthUser;
   } catch {
-    return null;
+    // 忽略，降级为访客用户
   }
+
+  // 3. [定制] 匿名访客：返回默认普通用户，使未登录也能使用核心功能
+  return await getOrCreateGuestUser();
 }
 
 export function registerApiRoutes(app: Router) {

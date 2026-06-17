@@ -26,15 +26,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { GuidedTour } from "@/components/GuidedTour";
 import { apiFetch } from "@/lib/apiFetch";
-import { FIXED_INDUSTRY, FIXED_COMPANY_NAME, FIXED_COMPANY_PROFILE } from "@shared/bestqiConstants";
+import { FIXED_INDUSTRY, FIXED_COMPANY_NAME } from "@shared/bestqiConstants";
 
+// [定制] 行业/公司已固定，热门案例只提供“岗位名称”示例，不再注入公司类型/行业信息
 const HOT_CASES = [
-  { title: "雇主品牌经理", company: "互联网大厂", industry: "科技" },
-  { title: "企业文化经理", company: "跨国企业", industry: "制造" },
-  { title: "HRBP", company: "金融机构", industry: "金融" },
-  { title: "产品经理", company: "SaaS公司", industry: "科技" },
-  { title: "市场营销总监", company: "消费品牌", industry: "零售" },
-  { title: "数据分析师", company: "电商平台", industry: "电商" },
+  { title: "雇主品牌经理", desc: "品牌与招聘" },
+  { title: "产品经理", desc: "产品规划" },
+  { title: "电商运营专员", desc: "渠道运营" },
+  { title: "供应链管理", desc: "生产与物流" },
+  { title: "客户成功经理", desc: "售后与服务" },
+  { title: "数据分析师", desc: "数据与洞察" },
 ];
 
 const ACCEPTED_TYPES = [
@@ -248,7 +249,8 @@ export default function Home() {
 
   const handleCaseClick = (caseItem: typeof HOT_CASES[0], index: number) => {
     setSelectedCaseIndex(index);
-    setInputText(`岗位名称：${caseItem.title}\n公司类型：${caseItem.company}\n所属行业：${caseItem.industry}`);
+    // [定制] 只填入岗位名称与岗位介绍引导，不再注入公司/行业（已固定）
+    setInputText(`岗位名称：${caseItem.title}\n岗位介绍：`);
     textareaRef.current?.focus();
   };
 
@@ -284,45 +286,21 @@ export default function Home() {
           </p>
         </motion.div>
 
-        {/* [定制] 固定行业与公司简介展示区（只读，不可修改） */}
+        {/* [定制] 行业与公司信息已在后端固定注入，首页不再要求用户输入。
+            用户只需填写“岗位名称”与“岗位介绍（可选输入或上传）”。 */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springPresets.gentle, delay: 0.05 }}
-          className="glass-card mb-6 space-y-4"
+          className="glass-card mb-6 flex items-center gap-3"
         >
-          <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
-            <div className="flex-1">
-              <label className="text-xs font-medium text-muted-foreground">所属行业（固定）</label>
-              <input
-                type="text"
-                value={FIXED_INDUSTRY}
-                readOnly
-                disabled
-                className="mt-1 w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none cursor-not-allowed"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="text-xs font-medium text-muted-foreground">公司名称（固定）</label>
-              <input
-                type="text"
-                value={FIXED_COMPANY_NAME}
-                readOnly
-                disabled
-                className="mt-1 w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none cursor-not-allowed"
-              />
-            </div>
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <CheckSquare className="w-4.5 h-4.5 text-primary" />
           </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">公司简介（固定，不可修改）</label>
-            <textarea
-              value={FIXED_COMPANY_PROFILE}
-              readOnly
-              disabled
-              rows={7}
-              className="mt-1 w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-muted-foreground text-sm outline-none resize-none cursor-not-allowed leading-relaxed"
-            />
-          </div>
+          <p className="text-sm text-muted-foreground">
+            分析将基于固定企业背景：<span className="text-foreground font-medium">{FIXED_COMPANY_NAME}</span>
+            （{FIXED_INDUSTRY}）。您只需输入岗位名称与岗位介绍即可。
+          </p>
         </motion.div>
 
         {/* Input Area */}
@@ -362,7 +340,7 @@ export default function Home() {
             ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="请输入岗位名称、岗位介绍、公司背景等信息...&#10;&#10;示例：&#10;岗位名称：雇主品牌经理&#10;公司：某互联网大厂&#10;主要职责：负责雇主品牌建设、校园招聘宣传..."
+            placeholder="请输入岗位名称与岗位介绍（岗位介绍可选，也可通过下方上传文件提供）...&#10;&#10;示例：&#10;岗位名称：雇主品牌经理&#10;岗位介绍：负责雇主品牌建设、招聘宣传、候选人体验优化..."
             className="w-full min-h-[160px] max-h-[400px] bg-transparent text-foreground placeholder:text-muted-foreground resize-y outline-none text-base leading-relaxed"
             maxLength={5000}
           />
@@ -494,7 +472,7 @@ export default function Home() {
                 <p className={`text-xs mt-1 transition-colors ${
                   selectedCaseIndex === i ? "text-primary-foreground/80" : "text-muted-foreground group-hover:text-foreground"
                 }`}>
-                  {item.company} · {item.industry}
+                  {item.desc}
                 </p>
               </motion.button>
             ))}

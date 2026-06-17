@@ -2,6 +2,7 @@ import type { CreateExpressContextOptions } from "@trpc/server/adapters/express"
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
 import { checkPlatformAdmin, createPlatformAdminUser } from "./adminIdentity";
+import { getOrCreateGuestUser } from "../guestUser";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -29,6 +30,11 @@ export async function createContext(
     } catch (error) {
       // Authentication is optional for public procedures.
       user = null;
+    }
+    // [定制] 匿名访客降级为默认普通用户，与 REST(resolveUser)保持一致，
+    // 使访客能通过 tRPC 读取自己提交的报告（protectedProcedure / report.get 归属校验）。
+    if (!user) {
+      user = await getOrCreateGuestUser();
     }
   }
 
