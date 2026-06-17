@@ -13,7 +13,8 @@ import { registerStorageProxy } from "./storageProxy";
 import { registerAdminAuthRoute } from "../adminAuthRoute";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import { serveStatic } from "./serveStatic";
+// [定制] setupVite 仅开发环境使用，改为动态导入，避免生产产物顶层引用 vite
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -58,6 +59,8 @@ async function startServer() {
   );
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
+    // 动态导入，仅开发环境加载 vite（生产环境不会执行到这里）
+    const { setupVite } = await import("./vite");
     await setupVite(app, server);
   } else {
     serveStatic(app);
