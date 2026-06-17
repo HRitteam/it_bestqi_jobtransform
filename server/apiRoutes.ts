@@ -81,8 +81,10 @@ export function registerApiRoutes(app: Router) {
       }
       const companyId = (req as any).companyId || user.companyId || null;
 
-      // ===== 每人每日分析次数限制（管理员不受限） =====
-      let dailyRemaining = DAILY_ANALYSIS_LIMIT;
+      // ===== [定制] 每日分析次数限制已隐藏：所有用户视为无限配额 =====
+      // 原 10 次/天限制逻辑保留在下方注释中，将来如需恢复，取消注释并删除本行即可。
+      let dailyRemaining = Number.MAX_SAFE_INTEGER;
+      /* --- 原每日次数限制逻辑（已隐藏） ---
       if (user.role !== "admin") {
         const db = await getDb();
         if (db) {
@@ -111,6 +113,7 @@ export function registerApiRoutes(app: Router) {
       } else {
         dailyRemaining = 9999; // admin unlimited
       }
+      --- 原每日次数限制逻辑结束 --- */
 
       const text = req.body.text || "";
       const uploadedFiles = (req.files as any[]) || [];
@@ -643,20 +646,19 @@ export function registerApiRoutes(app: Router) {
         return;
       }
 
-      // 管理员不受限制
+      // [定制] 每日次数限制已隐藏：所有用户统一返回无限配额，前端将自动隐藏“今日剩余次数”等提示。
+      res.json({ limit: DAILY_ANALYSIS_LIMIT, used: 0, remaining: DAILY_ANALYSIS_LIMIT, unlimited: true });
+      return;
+      /* --- 原配额查询逻辑（已隐藏） ---
       if (user.role === "admin") {
         res.json({ limit: DAILY_ANALYSIS_LIMIT, used: 0, remaining: DAILY_ANALYSIS_LIMIT, unlimited: true });
         return;
       }
-
-
-
       const db = await getDb();
       if (!db) {
         res.status(500).json({ error: "Database unavailable" });
         return;
       }
-
       // 使用SQL原生CURDATE()避免JS Date时区转换问题
       const countResult = await db.select({ count: sql<number>`count(*)` })
         .from(reports)
@@ -669,8 +671,8 @@ export function registerApiRoutes(app: Router) {
         );
       const used = Number(countResult[0]?.count ?? 0);
       const remaining = Math.max(0, DAILY_ANALYSIS_LIMIT - used);
-
       res.json({ limit: DAILY_ANALYSIS_LIMIT, used, remaining, unlimited: false });
+      --- 原配额查询逻辑结束 --- */
     } catch (error: any) {
       console.error("[Quota] Error:", error);
       res.status(500).json({ error: "Failed to get quota" });

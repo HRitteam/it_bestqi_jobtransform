@@ -1371,7 +1371,7 @@ init_db();
 init_schema();
 import multer from "multer";
 import { nanoid as nanoid2 } from "nanoid";
-import { eq as eq4, and as and3, sql as sql2, ne } from "drizzle-orm";
+import { eq as eq4 } from "drizzle-orm";
 
 // server/analysis.ts
 init_llm();
@@ -3314,32 +3314,7 @@ function registerApiRoutes(app) {
         return;
       }
       const companyId = req.companyId || user.companyId || null;
-      let dailyRemaining = DAILY_ANALYSIS_LIMIT;
-      if (user.role !== "admin") {
-        const db2 = await getDb();
-        if (db2) {
-          const countResult = await db2.select({ count: sql2`count(*)` }).from(reports).where(
-            and3(
-              eq4(reports.userId, user.id),
-              sql2`DATE(${reports.createdAt}) = CURDATE()`,
-              ne(reports.status, "pending")
-            )
-          );
-          const todayCount = Number(countResult[0]?.count ?? 0);
-          dailyRemaining = Math.max(0, DAILY_ANALYSIS_LIMIT - todayCount);
-          if (dailyRemaining <= 0) {
-            res.status(429).json({
-              error: "daily_limit_exceeded",
-              message: `\u4ECA\u65E5\u5206\u6790\u6B21\u6570\u5DF2\u8FBE\u4E0A\u9650\uFF08${DAILY_ANALYSIS_LIMIT}\u6B21\uFF09\uFF0C\u8BF7\u660E\u65E5\u518D\u8BD5`,
-              limit: DAILY_ANALYSIS_LIMIT,
-              used: todayCount
-            });
-            return;
-          }
-        }
-      } else {
-        dailyRemaining = 9999;
-      }
+      let dailyRemaining = Number.MAX_SAFE_INTEGER;
       const text2 = req.body.text || "";
       const uploadedFiles = req.files || [];
       const db = await getDb();
@@ -3777,25 +3752,8 @@ ${text2}`;
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
-      if (user.role === "admin") {
-        res.json({ limit: DAILY_ANALYSIS_LIMIT, used: 0, remaining: DAILY_ANALYSIS_LIMIT, unlimited: true });
-        return;
-      }
-      const db = await getDb();
-      if (!db) {
-        res.status(500).json({ error: "Database unavailable" });
-        return;
-      }
-      const countResult = await db.select({ count: sql2`count(*)` }).from(reports).where(
-        and3(
-          eq4(reports.userId, user.id),
-          sql2`DATE(${reports.createdAt}) = CURDATE()`,
-          ne(reports.status, "pending")
-        )
-      );
-      const used = Number(countResult[0]?.count ?? 0);
-      const remaining = Math.max(0, DAILY_ANALYSIS_LIMIT - used);
-      res.json({ limit: DAILY_ANALYSIS_LIMIT, used, remaining, unlimited: false });
+      res.json({ limit: DAILY_ANALYSIS_LIMIT, used: 0, remaining: DAILY_ANALYSIS_LIMIT, unlimited: true });
+      return;
     } catch (error) {
       console.error("[Quota] Error:", error);
       res.status(500).json({ error: "Failed to get quota" });
