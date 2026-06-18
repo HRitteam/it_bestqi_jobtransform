@@ -536,6 +536,34 @@ function logFailure(requestId, context, error, durationMs) {
     durationMs
   });
 }
+function recordParseLog(params) {
+  const { context, stepId, stepTitle, outcome, detail, emptyKeys } = params;
+  if (outcome === "direct") return;
+  const ok = outcome === "repaired";
+  const reasonMap = {
+    repaired: `[\u89E3\u6790\u4FEE\u590D] Step${stepId}\u300C${stepTitle}\u300D\u539F\u59CBJSON\u975E\u6CD5\uFF0C\u5DF2\u81EA\u52A8\u4FEE\u590D\u540E\u89E3\u6790\u6210\u529F`,
+    failed: `[\u89E3\u6790\u5931\u8D25] Step${stepId}\u300C${stepTitle}\u300DJSON\u89E3\u6790\u5931\u8D25\uFF1A${detail || "\u672A\u77E5"}`,
+    empty: `[\u5185\u5BB9\u4E3A\u7A7A] Step${stepId}\u300C${stepTitle}\u300D\u89E3\u6790\u6210\u529F\u4F46\u5173\u952E\u5B57\u6BB5\u7F3A\u5931\uFF1A${(emptyKeys || []).join(", ") || "\u672A\u77E5"}`
+  };
+  recordCallLog({
+    requestId: `parse_${stepId}_${Date.now()}`,
+    context: { ...context, feature: `${context.feature || "job_analysis"}:parse` },
+    success: ok,
+    failReason: reasonMap[outcome],
+    httpStatus: ok ? 200 : 0,
+    modelCode: "parse-check",
+    modelName: "\u89E3\u6790\u6821\u9A8C",
+    isSwitched: false,
+    switchTrace: [],
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    estimatedCost: 0,
+    requestTime: /* @__PURE__ */ new Date(),
+    responseTime: /* @__PURE__ */ new Date(),
+    durationMs: 0
+  });
+}
 var init_llmLogger = __esm({
   "server/_core/llmLogger.ts"() {
     "use strict";
@@ -1447,6 +1475,151 @@ init_llm();
 init_db();
 init_schema();
 import { eq as eq4 } from "drizzle-orm";
+
+// server/jsonRepair.ts
+function extractJsonString(content) {
+  let s = content || "";
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence && fence[1]) {
+    s = fence[1];
+  }
+  s = s.trim();
+  const firstObj = s.indexOf("{");
+  const firstArr = s.indexOf("[");
+  let start = -1;
+  let openChar = "{";
+  let closeChar = "}";
+  if (firstObj === -1 && firstArr === -1) return s;
+  if (firstArr !== -1 && (firstObj === -1 || firstArr < firstObj)) {
+    start = firstArr;
+    openChar = "[";
+    closeChar = "]";
+  } else {
+    start = firstObj;
+    openChar = "{";
+    closeChar = "}";
+  }
+  const lastClose = s.lastIndexOf(closeChar);
+  if (start !== -1 && lastClose !== -1 && lastClose > start) {
+    s = s.slice(start, lastClose + 1);
+  } else if (start !== -1) {
+    s = s.slice(start);
+  }
+  return s.trim();
+}
+function repairJson(input) {
+  let s = input;
+  s = s.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+  s = s.replace(/^\s*\/\/.*$/gm, "");
+  s = s.replace(/,\s*([}\]])/g, "$1");
+  const stack = [];
+  let inStr = false;
+  let strCh = "";
+  let escaped = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (escaped) {
+        escaped = false;
+      } else if (c === "\\") {
+        escaped = true;
+      } else if (c === strCh) {
+        inStr = false;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      inStr = true;
+      strCh = c;
+    } else if (c === "{" || c === "[") {
+      stack.push(c);
+    } else if (c === "}" || c === "]") {
+      stack.pop();
+    }
+  }
+  if (inStr) {
+    s += strCh;
+  }
+  s = s.replace(/,\s*$/g, "");
+  while (stack.length > 0) {
+    const open = stack.pop();
+    s += open === "{" ? "}" : "]";
+  }
+  return s;
+}
+function robustParseJson(content) {
+  const extracted = extractJsonString(content);
+  try {
+    return { data: JSON.parse(extracted), outcome: "direct" };
+  } catch (_) {
+  }
+  try {
+    const repaired = repairJson(extracted);
+    return { data: JSON.parse(repaired), outcome: "repaired" };
+  } catch (e) {
+    return { data: null, outcome: "failed", error: e?.message || String(e) };
+  }
+}
+var STEP_KEY_SPECS = {
+  1: [{ key: "coreResponsibilities", type: "array", aliases: ["responsibilities", "duties", "coreDuties"] }],
+  2: [{ key: "dimensions", type: "array", aliases: ["dimensionList", "analysis", "items"] }],
+  3: [{ key: "tasks", type: "array", aliases: ["taskList", "workflow", "workflowTasks", "nodes", "taskNodes", "items"] }],
+  4: [{ key: "recommendations", type: "array", aliases: ["recommendation", "tools", "toolRecommendations", "items"] }],
+  5: [{ key: "newTasks", type: "array", aliases: ["tasks", "taskList", "newWorkflow", "workflow", "items"] }],
+  6: [
+    { key: "dimensions", type: "array", aliases: ["comparison", "comparisons", "items"] },
+    { key: "roiPlans", type: "array", aliases: ["plans", "roi", "roiOptions"] }
+  ],
+  7: [
+    { key: "taskClassification", type: "object", aliases: ["classification", "taskCategories"] },
+    { key: "roadmap", type: "array", aliases: ["phases", "implementationRoadmap", "plan"] }
+  ],
+  8: [
+    { key: "risks", type: "array", aliases: ["riskList", "riskItems", "items"] },
+    { key: "kpis", type: "array", aliases: ["kpiList", "kpi", "metrics"] }
+  ],
+  9: [{ key: "competencies", type: "array", aliases: ["competencyList", "abilities", "items"] }]
+};
+function isEmptyValue(spec, value) {
+  if (value === void 0 || value === null) return true;
+  if (spec.type === "array") return !Array.isArray(value) || value.length === 0;
+  if (spec.type === "object") return typeof value !== "object" || Object.keys(value).length === 0;
+  return false;
+}
+function normalizeStepAliases(stepId, data) {
+  if (!data || typeof data !== "object") return data;
+  const specs = STEP_KEY_SPECS[stepId];
+  if (!specs) return data;
+  for (const spec of specs) {
+    if (isEmptyValue(spec, data[spec.key])) {
+      for (const alias of spec.aliases) {
+        if (!isEmptyValue(spec, data[alias])) {
+          data[spec.key] = data[alias];
+          break;
+        }
+      }
+    }
+  }
+  return data;
+}
+function detectEmptyStepKeys(stepId, data) {
+  const specs = STEP_KEY_SPECS[stepId];
+  if (!specs) return data ? [] : ["<all>"];
+  if (!data || typeof data !== "object") return specs.map((s) => s.key);
+  const empties = [];
+  for (const spec of specs) {
+    if (isEmptyValue(spec, data[spec.key])) empties.push(spec.key);
+  }
+  return empties;
+}
+function isStepDataIncomplete(stepId, data) {
+  if (data === null || data === void 0) return true;
+  return detectEmptyStepKeys(stepId, data).length > 0;
+}
+
+// server/analysis.ts
+init_llmLogger();
 
 // server/toolCatalog.ts
 var CATEGORY_LABELS = {
@@ -3048,80 +3221,97 @@ function sanitizeStepData(stepId, data) {
   }
   return data;
 }
+async function invokeAndParseStep(step, input, results, ctx, reportId) {
+  const userPrompt = step.prompt(input, results);
+  const schemaInstruction = `
+
+\u3010\u8F93\u51FA\u683C\u5F0F\u8981\u6C42\u3011\u8BF7\u4E25\u683C\u6309\u7167\u4EE5\u4E0BJSON\u7ED3\u6784\u8F93\u51FA\uFF0C\u4E0D\u8981\u8F93\u51FA\u4EFB\u4F55\u5176\u4ED6\u5185\u5BB9\uFF08\u4E0D\u8981\u52A0\u8BF4\u660E\u3001\u4E0D\u8981\u7528markdown\u4EE3\u7801\u5757\uFF09\uFF1A
+${JSON.stringify(step.schema.schema, null, 2)}`;
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt + schemaInstruction }
+      ],
+      response_format: { type: "json_object" }
+    }, ctx);
+    const content = response.choices[0]?.message?.content;
+    let parsed;
+    let outcome = "direct";
+    if (typeof content === "string") {
+      const pr = robustParseJson(content);
+      parsed = pr.data;
+      outcome = pr.outcome;
+      if (outcome === "failed") {
+        console.error(`[Report ${reportId}] Step ${step.id} JSON\u89E3\u6790\u5931\u8D25:`, pr.error);
+        recordParseLog({ context: ctx, stepId: step.id, stepTitle: step.title, outcome: "failed", detail: pr.error });
+        return null;
+      }
+      if (outcome === "repaired") {
+        recordParseLog({ context: ctx, stepId: step.id, stepTitle: step.title, outcome: "repaired" });
+      }
+    } else {
+      parsed = content;
+    }
+    parsed = normalizeStepAliases(step.id, parsed);
+    parsed = sanitizeStepData(step.id, parsed);
+    const emptyKeys = detectEmptyStepKeys(step.id, parsed);
+    if (emptyKeys.length > 0) {
+      recordParseLog({ context: ctx, stepId: step.id, stepTitle: step.title, outcome: "empty", emptyKeys });
+    }
+    return parsed;
+  } catch (error) {
+    console.error(`[Report ${reportId}] Step ${step.id} \u8C03\u7528\u5931\u8D25:`, error?.message || error);
+    recordParseLog({ context: ctx, stepId: step.id, stepTitle: step.title, outcome: "failed", detail: error?.message || String(error) });
+    return null;
+  }
+}
+async function refillEmptySteps(input, results, ctx, reportId, onProgress) {
+  for (const step of STEP_DEFINITIONS) {
+    const idx = results.findIndex((r) => r.step === step.id);
+    if (idx === -1) continue;
+    const current = results[idx].data;
+    if (current !== null && !isStepDataIncomplete(step.id, current)) continue;
+    const emptyKeys = detectEmptyStepKeys(step.id, current);
+    console.warn(`[Report ${reportId}] Step ${step.id} \u751F\u6210\u540E\u4ECD\u4E3A\u7A7A(${emptyKeys.join(",") || "null"})\uFF0C\u53D1\u8D77\u5B9A\u5411\u8865\u5168`);
+    onProgress(step.id, step.title, "active");
+    const refilled = await invokeAndParseStep(step, input, results, ctx, reportId);
+    if (refilled !== null && !isStepDataIncomplete(step.id, refilled)) {
+      results[idx].data = refilled;
+      onProgress(step.id, step.title, "completed");
+      console.warn(`[Report ${reportId}] Step ${step.id} \u5B9A\u5411\u8865\u5168\u6210\u529F`);
+    } else {
+      if (refilled !== null && (current === null || isStepDataIncomplete(step.id, current))) {
+        results[idx].data = refilled;
+      }
+      onProgress(step.id, step.title, results[idx].data === null ? "error" : "completed");
+      console.warn(`[Report ${reportId}] Step ${step.id} \u5B9A\u5411\u8865\u5168\u4ECD\u4E0D\u5B8C\u6574`);
+    }
+  }
+}
 async function runAnalysisChain(input, reportId, onProgress, llmContext) {
   const results = [];
   const db = await getDb();
+  const ctx = { ...llmContext, feature: llmContext?.feature || "job_analysis" };
   for (const step of STEP_DEFINITIONS) {
-    try {
-      onProgress(step.id, step.title, "active");
-      if (db) {
-        await db.update(reports).set({ currentStep: step.id, status: "analyzing" }).where(eq4(reports.reportId, reportId));
-      }
-      const userPrompt = step.prompt(input, results);
-      const schemaInstruction = `
-
-\u3010\u8F93\u51FA\u683C\u5F0F\u8981\u6C42\u3011\u8BF7\u4E25\u683C\u6309\u7167\u4EE5\u4E0BJSON\u7ED3\u6784\u8F93\u51FA\uFF0C\u4E0D\u8981\u8F93\u51FA\u4EFB\u4F55\u5176\u4ED6\u5185\u5BB9\uFF1A
-${JSON.stringify(step.schema.schema, null, 2)}`;
-      const response = await invokeLLM({
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt + schemaInstruction }
-        ],
-        response_format: {
-          type: "json_object"
-        }
-      }, { ...llmContext, feature: llmContext?.feature || "job_analysis" });
-      const content = response.choices[0]?.message?.content;
-      let parsed;
-      if (typeof content === "string") {
-        let cleanedContent = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
-        const jsonMatch = cleanedContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, cleanedContent];
-        const jsonStr = jsonMatch[1]?.trim() || cleanedContent.trim();
-        parsed = JSON.parse(jsonStr);
-      } else {
-        parsed = content;
-      }
-      parsed = sanitizeStepData(step.id, parsed);
-      results.push({ step: step.id, title: step.title, data: parsed });
-      onProgress(step.id, step.title, "completed");
-    } catch (error) {
-      console.error(`Step ${step.id} failed:`, error);
-      onProgress(step.id, step.title, "error");
-      try {
-        const userPrompt = step.prompt(input, results);
-        const schemaInstruction = `
-
-\u3010\u8F93\u51FA\u683C\u5F0F\u8981\u6C42\u3011\u8BF7\u4E25\u683C\u6309\u7167\u4EE5\u4E0BJSON\u7ED3\u6784\u8F93\u51FA\uFF0C\u4E0D\u8981\u8F93\u51FA\u4EFB\u4F55\u5176\u4ED6\u5185\u5BB9\uFF1A
-${JSON.stringify(step.schema.schema, null, 2)}`;
-        const response = await invokeLLM({
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: userPrompt + schemaInstruction }
-          ],
-          response_format: {
-            type: "json_object"
-          }
-        }, { ...llmContext, feature: llmContext?.feature || "job_analysis" });
-        const content = response.choices[0]?.message?.content;
-        let parsed;
-        if (typeof content === "string") {
-          let cleanedRetry = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
-          const jsonMatch = cleanedRetry.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, cleanedRetry];
-          const jsonStr = jsonMatch[1]?.trim() || cleanedRetry.trim();
-          parsed = JSON.parse(jsonStr);
-        } else {
-          parsed = content;
-        }
-        parsed = sanitizeStepData(step.id, parsed);
-        results.push({ step: step.id, title: step.title, data: parsed });
-        onProgress(step.id, step.title, "completed");
-      } catch (retryError) {
-        console.error(`Step ${step.id} retry failed:`, retryError);
-        results.push({ step: step.id, title: step.title, data: null });
-        onProgress(step.id, step.title, "error");
+    onProgress(step.id, step.title, "active");
+    if (db) {
+      await db.update(reports).set({ currentStep: step.id, status: "analyzing" }).where(eq4(reports.reportId, reportId));
+    }
+    let parsed = await invokeAndParseStep(step, input, results, ctx, reportId);
+    if (parsed === null || isStepDataIncomplete(step.id, parsed)) {
+      console.warn(`[Report ${reportId}] Step ${step.id} \u9996\u6B21\u7ED3\u679C\u4E0D\u5B8C\u6574\uFF0C\u91CD\u8BD5\u4E00\u6B21`);
+      const retryParsed = await invokeAndParseStep(step, input, results, ctx, reportId);
+      if (retryParsed !== null && !isStepDataIncomplete(step.id, retryParsed)) {
+        parsed = retryParsed;
+      } else if (parsed === null && retryParsed !== null) {
+        parsed = retryParsed;
       }
     }
+    results.push({ step: step.id, title: step.title, data: parsed });
+    onProgress(step.id, step.title, parsed === null ? "error" : "completed");
   }
+  await refillEmptySteps(input, results, ctx, reportId, onProgress);
   const consistencyWarnings = validateCrossStepConsistency(results);
   if (consistencyWarnings.length > 0) {
     console.warn(`[Report ${reportId}] Cross-step consistency warnings:`, consistencyWarnings);
@@ -3363,7 +3553,8 @@ function decodeZipEntryName(entry) {
   return raw;
 }
 var DAILY_ANALYSIS_LIMIT = 10;
-var upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+var MAX_FILE_SIZE = 50 * 1024 * 1024;
+var upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
 var sseConnections = /* @__PURE__ */ new Map();
 async function resolveUser(req) {
   const adminUser = await authenticateAdmin(req);
@@ -3376,7 +3567,20 @@ async function resolveUser(req) {
   return await getOrCreateGuestUser();
 }
 function registerApiRoutes(app) {
-  app.post("/api/analysis/submit", upload.array("files", 10), async (req, res) => {
+  const uploadFilesWithLimit = (req, res, next) => {
+    upload.array("files", 10)(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          res.status(413).json({ error: "\u5355\u4E2A\u6587\u4EF6\u5927\u5C0F\u4E0D\u80FD\u8D85\u8FC7 50MB\uFF0C\u8BF7\u538B\u7F29\u540E\u91CD\u8BD5" });
+          return;
+        }
+        res.status(400).json({ error: err.message || "\u6587\u4EF6\u4E0A\u4F20\u5931\u8D25" });
+        return;
+      }
+      next();
+    });
+  };
+  app.post("/api/analysis/submit", uploadFilesWithLimit, async (req, res) => {
     try {
       const user = await resolveUser(req);
       if (!user) {

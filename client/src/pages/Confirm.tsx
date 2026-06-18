@@ -356,12 +356,7 @@ export default function ConfirmPage() {
             />
           </div>
 
-          {/* [定制] 公司/行业/公司简介已固定并在后端自动注入，确认页不再展示这些字段，只保留岗位信息 */}
-          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-muted/40 border border-border">
-            <span className="text-xs text-muted-foreground">
-              分析基于固定企业背景：<span className="text-foreground font-medium">{FIXED_COMPANY_NAME}</span>（{FIXED_INDUSTRY}），请确认以下岗位信息。
-            </span>
-          </div>
+          {/* [定制] 公司/行业/公司简介已固定并在后端自动注入，确认页不再展示该提示行（FIXED_* 仍随提交 payload 默认写入） */}
 
           {/* Department */}
           <div className="space-y-2">

@@ -155,3 +155,54 @@ export function logFailure(
     durationMs,
   });
 }
+
+// ============================================================
+// 解析结果补记日志
+// ============================================================
+
+/**
+ * 记录"分析链步骤解析结果"日志。
+ *
+ * 背景：原有 logSuccess/logFailure 只反映 LLM 接口调用层面的成败，
+ * 无法体现"接口成功但返回 JSON 解析失败/内容为空"的情况。
+ * 本函数把解析结果（direct/repaired/failed/empty）以一条独立日志写入 llm_call_logs，
+ * 不新增表字段：解析失败/为空记为 success=0 并在 failReason 中说明，便于在调用日志中排查。
+ */
+export function recordParseLog(params: {
+  context: RouteContext;
+  stepId: number;
+  stepTitle: string;
+  outcome: "direct" | "repaired" | "failed" | "empty";
+  detail?: string;
+  emptyKeys?: string[];
+}): void {
+  const { context, stepId, stepTitle, outcome, detail, emptyKeys } = params;
+  // direct（一次解析成功且内容完整）不单独记日志，避免日志量翻倍
+  if (outcome === "direct") return;
+
+  const ok = outcome === "repaired";
+  const reasonMap: Record<string, string> = {
+    repaired: `[解析修复] Step${stepId}「${stepTitle}」原始JSON非法，已自动修复后解析成功`,
+    failed: `[解析失败] Step${stepId}「${stepTitle}」JSON解析失败：${detail || "未知"}`,
+    empty: `[内容为空] Step${stepId}「${stepTitle}」解析成功但关键字段缺失：${(emptyKeys || []).join(", ") || "未知"}`,
+  };
+
+  recordCallLog({
+    requestId: `parse_${stepId}_${Date.now()}`,
+    context: { ...context, feature: `${context.feature || "job_analysis"}:parse` },
+    success: ok,
+    failReason: reasonMap[outcome],
+    httpStatus: ok ? 200 : 0,
+    modelCode: "parse-check",
+    modelName: "解析校验",
+    isSwitched: false,
+    switchTrace: [],
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    estimatedCost: 0,
+    requestTime: new Date(),
+    responseTime: new Date(),
+    durationMs: 0,
+  });
+}

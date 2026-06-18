@@ -48,7 +48,8 @@ function decodeZipEntryName(entry: any): string {
 /** 每人每天最多分析次数 */
 const DAILY_ANALYSIS_LIMIT = 10;
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 单文件上限 50MB
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
 
 // In-memory SSE connections map
 const sseConnections = new Map<string, Response[]>();
@@ -77,7 +78,21 @@ async function resolveUser(req: Request): Promise<User | null> {
 
 export function registerApiRoutes(app: Router) {
   // Submit analysis
-  app.post("/api/analysis/submit", upload.array("files", 10), async (req: Request, res: Response) => {
+  const uploadFilesWithLimit = (req: Request, res: Response, next: (err?: any) => void) => {
+    upload.array("files", 10)(req, res, (err: any) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          res.status(413).json({ error: "单个文件大小不能超过 50MB，请压缩后重试" });
+          return;
+        }
+        res.status(400).json({ error: err.message || "文件上传失败" });
+        return;
+      }
+      next();
+    });
+  };
+
+  app.post("/api/analysis/submit", uploadFilesWithLimit, async (req: Request, res: Response) => {
     try {
       const user = await resolveUser(req);
       if (!user) {

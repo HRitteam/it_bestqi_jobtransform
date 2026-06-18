@@ -72,6 +72,27 @@ const ACCEPTED_TYPES = [
 
 const ACCEPTED_EXTENSIONS = [".txt", ".pdf", ".doc", ".docx", ".zip"];
 
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 单文件上限 50MB
+
+/**
+ * 按类型/扩展名过滤，并对单文件大小做 50MB 校验。
+ * 超过限制的文件不加入列表并统一 toast 提示。
+ */
+function filterAcceptedFiles(candidates: File[]): File[] {
+  const typeOk = candidates.filter(
+    (f) =>
+      ACCEPTED_TYPES.includes(f.type) ||
+      ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext))
+  );
+  const oversized = typeOk.filter((f) => f.size > MAX_FILE_SIZE);
+  if (oversized.length > 0) {
+    toast.error("单个文件大小不能超过 50MB", {
+      description: oversized.map((f) => f.name).join("、"),
+    });
+  }
+  return typeOk.filter((f) => f.size <= MAX_FILE_SIZE);
+}
+
 interface UploadedFile {
   file: File;
   id: string;
@@ -136,10 +157,7 @@ export default function Home() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const droppedFiles = Array.from(e.dataTransfer.files).filter((f) =>
-      ACCEPTED_TYPES.includes(f.type) ||
-      ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext))
-    );
+    const droppedFiles = filterAcceptedFiles(Array.from(e.dataTransfer.files));
     setFiles((prev) => [
       ...prev,
       ...droppedFiles.map((file) => ({ file, id: crypto.randomUUID() })),
@@ -148,11 +166,13 @@ export default function Home() {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const selected = Array.from(e.target.files);
+      const selected = filterAcceptedFiles(Array.from(e.target.files));
       setFiles((prev) => [
         ...prev,
         ...selected.map((file) => ({ file, id: crypto.randomUUID() })),
       ]);
+      // 允许重复选择同名文件
+      e.target.value = "";
     }
   };
 
@@ -415,7 +435,7 @@ export default function Home() {
                 上传文件
               </Button>
               <span className="text-xs text-muted-foreground">
-                支持 .txt .doc .docx .pdf .zip
+                支持 .txt .doc .docx .pdf .zip（单文件 ≤ 50MB）
               </span>
             </div>
             <div className="flex items-center gap-3">

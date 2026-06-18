@@ -56,6 +56,11 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { icon: Home, label: "开始分析", path: "/" },
       { icon: LayoutDashboard, label: "HR工作台", path: "/dashboard" },
+    ],
+  },
+  {
+    label: "分析",
+    items: [
       { icon: FileText, label: "批量分析", path: "/batch" },
       { icon: Clock, label: "历史记录", path: "/history" },
       { icon: GitCompareArrows, label: "报告对比", path: "/compare" },
@@ -63,12 +68,12 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "设置",
+    label: "其他",
     items: [
+      { icon: Brain, label: "产品介绍", path: "/about" },
       // [定制] 品牌定制/工具管理 仅平台管理员可见
       { icon: Palette, label: "品牌定制", path: "/brand-settings", platformAdmin: true },
       { icon: Wrench, label: "工具管理", path: "/admin-tools", platformAdmin: true },
-      { icon: Brain, label: "产品介绍", path: "/about" },
     ],
   },
   {

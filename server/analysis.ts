@@ -4,6 +4,14 @@ import { getDb } from "./db";
 import { reports } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import {
+  robustParseJson,
+  normalizeStepAliases,
+  detectEmptyStepKeys,
+  isStepDataIncomplete,
+  type ParseOutcome,
+} from "./jsonRepair";
+import { recordParseLog } from "./_core/llmLogger";
+import {
   TOOL_CATALOG,
   getFilteredToolsForJob,
   generateProhibitionRules,
@@ -981,6 +989,107 @@ export function sanitizeStepData(stepId: number, data: any): any {
   return data;
 }
 
+type LlmCtx = { companyId?: string; userId?: number; phone?: string; feature: string; source?: string };
+
+/**
+ * 调用单个步骤的 LLM 并健壮解析。
+ * - 使用 robustParseJson（提取 + 修复）避免被截断/混入说明文字导致的解析失败
+ * - 使用 normalizeStepAliases 容错字段别名（如 taskList → tasks）
+ * - 通过 recordParseLog 把解析结果（repaired/failed/empty）补记到调用日志
+ * 解析失败返回 null。
+ */
+async function invokeAndParseStep(
+  step: typeof STEP_DEFINITIONS[number],
+  input: AnalysisInput,
+  results: StepResult[],
+  ctx: LlmCtx,
+  reportId: string
+): Promise<any> {
+  const userPrompt = step.prompt(input, results);
+  const schemaInstruction = `\n\n【输出格式要求】请严格按照以下JSON结构输出，不要输出任何其他内容（不要加说明、不要用markdown代码块）：\n${JSON.stringify(step.schema.schema, null, 2)}`;
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt + schemaInstruction },
+      ],
+      response_format: { type: "json_object" },
+    }, ctx);
+
+    const content = response.choices[0]?.message?.content;
+    let parsed: any;
+    let outcome: ParseOutcome = "direct";
+
+    if (typeof content === "string") {
+      const pr = robustParseJson(content);
+      parsed = pr.data;
+      outcome = pr.outcome;
+      if (outcome === "failed") {
+        console.error(`[Report ${reportId}] Step ${step.id} JSON解析失败:`, pr.error);
+        recordParseLog({ context: ctx, stepId: step.id, stepTitle: step.title, outcome: "failed", detail: pr.error });
+        return null;
+      }
+      if (outcome === "repaired") {
+        recordParseLog({ context: ctx, stepId: step.id, stepTitle: step.title, outcome: "repaired" });
+      }
+    } else {
+      parsed = content;
+    }
+
+    // 字段别名归一化 + 业务清洗
+    parsed = normalizeStepAliases(step.id, parsed);
+    parsed = sanitizeStepData(step.id, parsed);
+
+    // 解析成功但关键字段仍为空，补记日志
+    const emptyKeys = detectEmptyStepKeys(step.id, parsed);
+    if (emptyKeys.length > 0) {
+      recordParseLog({ context: ctx, stepId: step.id, stepTitle: step.title, outcome: "empty", emptyKeys });
+    }
+    return parsed;
+  } catch (error: any) {
+    console.error(`[Report ${reportId}] Step ${step.id} 调用失败:`, error?.message || error);
+    recordParseLog({ context: ctx, stepId: step.id, stepTitle: step.title, outcome: "failed", detail: error?.message || String(error) });
+    return null;
+  }
+}
+
+/**
+ * 生成后空内容检测与定向补全。
+ * 针对仍为 null 或关键字段缺失的步骤，再独立调一次模型补充（最多一轮）。
+ */
+async function refillEmptySteps(
+  input: AnalysisInput,
+  results: StepResult[],
+  ctx: LlmCtx,
+  reportId: string,
+  onProgress: ProgressCallback
+): Promise<void> {
+  for (const step of STEP_DEFINITIONS) {
+    const idx = results.findIndex(r => r.step === step.id);
+    if (idx === -1) continue;
+    const current = results[idx].data;
+    if (current !== null && !isStepDataIncomplete(step.id, current)) continue;
+
+    const emptyKeys = detectEmptyStepKeys(step.id, current);
+    console.warn(`[Report ${reportId}] Step ${step.id} 生成后仍为空(${emptyKeys.join(",") || "null"})，发起定向补全`);
+    onProgress(step.id, step.title, "active");
+
+    const refilled = await invokeAndParseStep(step, input, results, ctx, reportId);
+    if (refilled !== null && !isStepDataIncomplete(step.id, refilled)) {
+      results[idx].data = refilled;
+      onProgress(step.id, step.title, "completed");
+      console.warn(`[Report ${reportId}] Step ${step.id} 定向补全成功`);
+    } else {
+      // 补全仍失败：保留原值（可能为部分内容或 null）
+      if (refilled !== null && (current === null || isStepDataIncomplete(step.id, current))) {
+        results[idx].data = refilled; // 至少比 null 好
+      }
+      onProgress(step.id, step.title, results[idx].data === null ? "error" : "completed");
+      console.warn(`[Report ${reportId}] Step ${step.id} 定向补全仍不完整`);
+    }
+  }
+}
+
 export async function runAnalysisChain(
   input: AnalysisInput,
   reportId: string,
@@ -989,86 +1098,38 @@ export async function runAnalysisChain(
 ): Promise<StepResult[]> {
   const results: StepResult[] = [];
   const db = await getDb();
+  const ctx = { ...llmContext, feature: llmContext?.feature || "job_analysis" };
 
   for (const step of STEP_DEFINITIONS) {
-    try {
-      onProgress(step.id, step.title, "active");
+    onProgress(step.id, step.title, "active");
 
-      // Update DB status
-      if (db) {
-        await db.update(reports)
-          .set({ currentStep: step.id, status: "analyzing" })
-          .where(eq(reports.reportId, reportId));
-      }
+    // Update DB status
+    if (db) {
+      await db.update(reports)
+        .set({ currentStep: step.id, status: "analyzing" })
+        .where(eq(reports.reportId, reportId));
+    }
 
-      const userPrompt = step.prompt(input, results);
-      const schemaInstruction = `\n\n【输出格式要求】请严格按照以下JSON结构输出，不要输出任何其他内容：\n${JSON.stringify(step.schema.schema, null, 2)}`;
-
-      const response = await invokeLLM({
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt + schemaInstruction },
-        ],
-        response_format: {
-          type: "json_object",
-        },
-      }, { ...llmContext, feature: llmContext?.feature || "job_analysis" });
-
-      const content = response.choices[0]?.message?.content;
-      let parsed: any;
-
-      if (typeof content === "string") {
-        // Try to extract JSON from response (handle markdown code blocks and <think> tags)
-        let cleanedContent = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
-        const jsonMatch = cleanedContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, cleanedContent];
-        const jsonStr = jsonMatch[1]?.trim() || cleanedContent.trim();
-        parsed = JSON.parse(jsonStr);
-      } else {
-        parsed = content;
-      }
-
-      parsed = sanitizeStepData(step.id, parsed);
-      results.push({ step: step.id, title: step.title, data: parsed });
-      onProgress(step.id, step.title, "completed");
-    } catch (error) {
-      console.error(`Step ${step.id} failed:`, error);
-      onProgress(step.id, step.title, "error");
-      // Retry once
-      try {
-        const userPrompt = step.prompt(input, results);
-        const schemaInstruction = `\n\n【输出格式要求】请严格按照以下JSON结构输出，不要输出任何其他内容：\n${JSON.stringify(step.schema.schema, null, 2)}`;
-        const response = await invokeLLM({
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: userPrompt + schemaInstruction },
-          ],
-          response_format: {
-            type: "json_object",
-          },
-        }, { ...llmContext, feature: llmContext?.feature || "job_analysis" });
-
-        const content = response.choices[0]?.message?.content;
-        let parsed: any;
-        if (typeof content === "string") {
-          let cleanedRetry = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
-          const jsonMatch = cleanedRetry.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, cleanedRetry];
-          const jsonStr = jsonMatch[1]?.trim() || cleanedRetry.trim();
-          parsed = JSON.parse(jsonStr);
-        } else {
-          parsed = content;
-        }
-
-        parsed = sanitizeStepData(step.id, parsed);
-        results.push({ step: step.id, title: step.title, data: parsed });
-        onProgress(step.id, step.title, "completed");
-      } catch (retryError) {
-        console.error(`Step ${step.id} retry failed:`, retryError);
-        // Push empty result and continue
-        results.push({ step: step.id, title: step.title, data: null });
-        onProgress(step.id, step.title, "error");
+    // 首次尝试
+    let parsed = await invokeAndParseStep(step, input, results, ctx, reportId);
+    // 解析失败或内容为空时，重试一次
+    if (parsed === null || isStepDataIncomplete(step.id, parsed)) {
+      console.warn(`[Report ${reportId}] Step ${step.id} 首次结果不完整，重试一次`);
+      const retryParsed = await invokeAndParseStep(step, input, results, ctx, reportId);
+      // 重试结果更完整则采用重试结果
+      if (retryParsed !== null && !isStepDataIncomplete(step.id, retryParsed)) {
+        parsed = retryParsed;
+      } else if (parsed === null && retryParsed !== null) {
+        parsed = retryParsed;
       }
     }
+
+    results.push({ step: step.id, title: step.title, data: parsed });
+    onProgress(step.id, step.title, parsed === null ? "error" : "completed");
   }
+
+  // [修复3] 生成后空内容检测与定向补全：对仍为空的关键步骤专门再调一次模型补充
+  await refillEmptySteps(input, results, ctx, reportId, onProgress);
 
   // Cross-step consistency validation (log warnings only, do not block)
   const consistencyWarnings = validateCrossStepConsistency(results);
