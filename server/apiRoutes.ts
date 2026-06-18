@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import multer from "multer";
 import { nanoid } from "nanoid";
 import { getDb } from "./db";
-import { reports, files as filesTable } from "../drizzle/schema";
+import { reports, files as filesTable, reportFeedback, reportDistributions } from "../drizzle/schema";
 import { getOrCreateGuestUser } from "./guestUser";
 import { eq, and, gte, sql, ne } from "drizzle-orm";
 import { runAnalysisChain, STEP_DEFINITIONS, sanitizeStepData } from "./analysis";
@@ -492,9 +492,9 @@ export function registerApiRoutes(app: Router) {
       const companyId = user.companyId || undefined;
       startAnalysis(reportId, input, { companyId, userId: user.id, phone: user.phone || undefined });
       res.json({ reportId });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Confirm error:", error);
-      res.status(500).json({ error: "Internal server error" });
+      res.status(500).json({ error: "Internal server error", detail: error?.message || String(error) });
     }
   });
 
@@ -569,13 +569,15 @@ export function registerApiRoutes(app: Router) {
         res.status(403).json({ error: "Forbidden" });
         return;
       }
+      // [修复] 先删除关联表记录，避免外键约束导致删除失败
+      try { await db.delete(reportFeedback).where(eq(reportFeedback.reportId, reportId)); } catch (e) { console.warn("delete reportFeedback failed:", e); }
+      try { await db.delete(reportDistributions).where(eq(reportDistributions.reportId, reportId)); } catch (e) { console.warn("delete reportDistributions failed:", e); }
+      try { await db.delete(filesTable).where(eq(filesTable.reportId, reportId)); } catch (e) { console.warn("delete files failed:", e); }
       await db.delete(reports).where(eq(reports.reportId, reportId));
-      // Also delete associated files
-      await db.delete(filesTable).where(eq(filesTable.reportId, reportId));
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Delete error:", error);
-      res.status(500).json({ error: "Internal server error" });
+      res.status(500).json({ error: "Internal server error", detail: error?.message || String(error) });
     }
   });
 

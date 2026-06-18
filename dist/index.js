@@ -3686,7 +3686,7 @@ ${text2}`;
       res.json({ reportId });
     } catch (error) {
       console.error("Confirm error:", error);
-      res.status(500).json({ error: "Internal server error" });
+      res.status(500).json({ error: "Internal server error", detail: error?.message || String(error) });
     }
   });
   app.get("/api/analysis/:id/info", async (req, res) => {
@@ -3755,12 +3755,26 @@ ${text2}`;
         res.status(403).json({ error: "Forbidden" });
         return;
       }
+      try {
+        await db.delete(reportFeedback).where(eq5(reportFeedback.reportId, reportId));
+      } catch (e) {
+        console.warn("delete reportFeedback failed:", e);
+      }
+      try {
+        await db.delete(reportDistributions).where(eq5(reportDistributions.reportId, reportId));
+      } catch (e) {
+        console.warn("delete reportDistributions failed:", e);
+      }
+      try {
+        await db.delete(files).where(eq5(files.reportId, reportId));
+      } catch (e) {
+        console.warn("delete files failed:", e);
+      }
       await db.delete(reports).where(eq5(reports.reportId, reportId));
-      await db.delete(files).where(eq5(files.reportId, reportId));
       res.json({ success: true });
     } catch (error) {
       console.error("Delete error:", error);
-      res.status(500).json({ error: "Internal server error" });
+      res.status(500).json({ error: "Internal server error", detail: error?.message || String(error) });
     }
   });
   app.get("/api/analysis/:id/progress", (req, res) => {

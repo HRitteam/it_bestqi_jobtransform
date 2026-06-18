@@ -1087,8 +1087,11 @@ export default function ReportPage() {
   // 品牌定制设置（用于打印页脚）
   // 分享 token 模式下禁用 brand.get（protectedProcedure，无登录态会触发 UNAUTHORIZED 重定向循环）
   const { data: brandData } = trpc.brand.get.useQuery(undefined, { enabled: !isDemo && !shareToken });
+  // [定制] 是否允许编辑/发起分析：分享 token 模式（只读查看）下禁止任何分析操作
+  const canEdit = !shareToken && !isDemo;
   // 步骤级重新分析
   const handleRetryStep = async (stepId: number) => {
+    if (!canEdit) { toast.error("分享查看模式下不可进行分析操作"); return; }
     setRetryingStep(stepId);
     try {
       const resp = await apiFetch(`/api/report/${params.id}/retry-step`, {
@@ -1861,7 +1864,7 @@ export default function ReportPage() {
           {reportData.training && isTrainingDataValid(reportData.training) ? (
             <TrainingCompetency data={reportData.training} />
           ) : (
-            <TrainingRetryCard reportId={report.reportId} />
+            <TrainingRetryCard reportId={report.reportId} canEdit={canEdit} />
           )}
           {!shareToken && !isDemo && (
             <div className="flex justify-end mt-4">
@@ -2210,11 +2213,12 @@ export default function ReportPage() {
   );
 }
 
-function TrainingRetryCard({ reportId }: { reportId: string }) {
+function TrainingRetryCard({ reportId, canEdit }: { reportId: string; canEdit: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleRegenerate = async () => {
+    if (!canEdit) { toast.error("分享查看模式下不可进行分析操作"); return; }
     setLoading(true);
     setError(null);
     try {

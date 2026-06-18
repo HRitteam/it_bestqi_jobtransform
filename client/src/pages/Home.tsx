@@ -27,6 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { GuidedTour } from "@/components/GuidedTour";
 import { apiFetch } from "@/lib/apiFetch";
+import { isShareGuest } from "@/lib/shareGuest";
 import { FIXED_INDUSTRY, FIXED_COMPANY_NAME, FIXED_COMPANY_PROFILE } from "@shared/bestqiConstants";
 
 // [定制] 行业/公司已固定，热门案例只提供“岗位名称 + 岗位介绍”示例，不再注入公司类型/行业信息
@@ -86,6 +87,8 @@ interface FileSelectionItem {
 
 
 export default function Home() {
+  // [定制] 分享访客只读模式：禁止发起新分析
+  const shareGuest = isShareGuest();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [inputText, setInputText] = useState("");
@@ -165,6 +168,11 @@ export default function Home() {
   };
 
   const handleSubmit = async (selectedFilesOverride?: string[]) => {
+    // [定制] 分享访客只读模式下禁止发起新分析
+    if (isShareGuest()) {
+      toast.error("分享查看模式下不支持发起新分析");
+      return;
+    }
     if (!inputText.trim() && files.length === 0) return;
 
     // 前端预检查：非ZIP文件数量是否超过配额
@@ -323,8 +331,8 @@ export default function Home() {
             <CheckSquare className="w-4.5 h-4.5 text-primary" />
           </div>
           <p className="text-sm text-muted-foreground">
-            分析将基于固定企业背景：<span className="text-foreground font-medium">{FIXED_COMPANY_NAME}</span>
-            （{FIXED_INDUSTRY}）。您只需输入岗位名称与岗位介绍即可。
+            分析将基于企业背景：<span className="text-foreground font-medium">{FIXED_COMPANY_NAME}</span>
+            （{FIXED_INDUSTRY}）。
           </p>
         </motion.div>
 
@@ -337,7 +345,7 @@ export default function Home() {
         >
           <div className="flex items-center gap-2 mb-3">
             <Building2 className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium text-foreground">固定公司简介</span>
+            <span className="text-sm font-medium text-foreground">公司简介</span>
             <span className="text-xs text-muted-foreground">（本次分析的企业背景，不可修改）</span>
           </div>
           <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
@@ -461,7 +469,7 @@ export default function Home() {
               <Button
                 data-tour="submit-btn"
                 onClick={() => handleSubmit()}
-                disabled={isSubmitting || (!inputText.trim() && files.length === 0) || (quota !== null && !quota.unlimited && quota.remaining <= 0)}
+                disabled={shareGuest || isSubmitting || (!inputText.trim() && files.length === 0) || (quota !== null && !quota.unlimited && quota.remaining <= 0)}
                 className="gap-2"
               >
                 {isSubmitting ? (
@@ -469,7 +477,7 @@ export default function Home() {
                 ) : (
                   <Sparkles className="w-4 h-4" />
                 )}
-                {quota && !quota.unlimited && quota.remaining <= 0 ? "今日已达上限" : "开始分析"}
+                {shareGuest ? "仅可查看分享报告" : (quota && !quota.unlimited && quota.remaining <= 0 ? "今日已达上限" : "开始分析")}
               </Button>
             </div>
           </div>

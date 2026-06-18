@@ -23,6 +23,8 @@ export default function SharedReport() {
 
   useEffect(() => {
     if (report && report.reportId) {
+      // [定制] 标记为“分享访客只读模式”：禁止该访客发起新分析
+      try { sessionStorage.setItem("shareGuestMode", "1"); } catch {}
       // 找到报告，跳转到报告页面并携带token
       setLocation(`/report/${report.reportId}?token=${token}`);
     }
