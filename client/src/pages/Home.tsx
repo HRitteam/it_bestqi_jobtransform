@@ -11,6 +11,7 @@ import {
   X,
   AlertTriangle,
   CheckSquare,
+  Building2,
 } from "lucide-react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
@@ -26,7 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { GuidedTour } from "@/components/GuidedTour";
 import { apiFetch } from "@/lib/apiFetch";
-import { FIXED_INDUSTRY, FIXED_COMPANY_NAME } from "@shared/bestqiConstants";
+import { FIXED_INDUSTRY, FIXED_COMPANY_NAME, FIXED_COMPANY_PROFILE } from "@shared/bestqiConstants";
 
 // [定制] 行业/公司已固定，热门案例只提供“岗位名称 + 岗位介绍”示例，不再注入公司类型/行业信息
 const HOT_CASES = [
@@ -327,6 +328,23 @@ export default function Home() {
           </p>
         </motion.div>
 
+        {/* [定制] 固定公司简介完整展示（只读） */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springPresets.gentle, delay: 0.07 }}
+          className="glass-card mb-6"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Building2 className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium text-foreground">固定公司简介</span>
+            <span className="text-xs text-muted-foreground">（本次分析的企业背景，不可修改）</span>
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
+            {FIXED_COMPANY_PROFILE}
+          </p>
+        </motion.div>
+
         {/* Input Area */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -364,7 +382,7 @@ export default function Home() {
             ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="请输入岗位名称与岗位介绍（岗位介绍可选，也可通过下方上传文件提供）...&#10;&#10;示例：&#10;岗位名称：雇主品牌经理&#10;岗位介绍：负责雇主品牌建设、招聘宣传、候选人体验优化..."
+            placeholder="请输入岗位名称与岗位介绍等信息&#10;&#10;示例：&#10;岗位名称：雇主品牌经理&#10;岗位介绍：负责雇主品牌建设、招聘宣传、候选人体验优化..."
             className="w-full min-h-[160px] max-h-[400px] bg-transparent text-foreground placeholder:text-muted-foreground resize-y outline-none text-base leading-relaxed"
             maxLength={5000}
           />
