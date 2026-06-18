@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { isIframeMode } from "@/lib/iframeContext";
 import { checkAdminFromUrl, isAdminMode, exitAdminMode } from "@/lib/adminAuth";
+import { isShareGuest } from "@/lib/shareGuest";
 import { motion } from "framer-motion";
 import {
   Brain,
@@ -38,6 +39,8 @@ interface NavItem {
   path: string;
   adminOnly?: boolean;
   platformAdmin?: boolean;
+  // [定制] 写操作类入口（发起新分析等），分享访客只读模式下隐藏
+  writeAction?: boolean;
 }
 
 interface NavGroup {
@@ -54,17 +57,17 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "工作台",
     items: [
-      { icon: Home, label: "开始分析", path: "/" },
-      { icon: LayoutDashboard, label: "HR工作台", path: "/dashboard" },
+      { icon: Home, label: "开始分析", path: "/", writeAction: true },
+      { icon: LayoutDashboard, label: "HR工作台", path: "/dashboard", writeAction: true },
     ],
   },
   {
     label: "分析",
     items: [
-      { icon: FileText, label: "批量分析", path: "/batch" },
-      { icon: Clock, label: "历史记录", path: "/history" },
-      { icon: GitCompareArrows, label: "报告对比", path: "/compare" },
-      { icon: Building2, label: "部门报告", path: "/department-report" },
+      { icon: FileText, label: "批量分析", path: "/batch", writeAction: true },
+      { icon: Clock, label: "历史记录", path: "/history", writeAction: true },
+      { icon: GitCompareArrows, label: "报告对比", path: "/compare", writeAction: true },
+      { icon: Building2, label: "部门报告", path: "/department-report", writeAction: true },
     ],
   },
   {
@@ -139,6 +142,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   // [定制] 菜单可见性：未验证管理员只能看到普通菜单（开始分析/产品介绍）；
   // 通过密码验证（或 ?adminPwd= 参数）后，adminVerified=true，显示全部后台菜单。
+  // [定制] 分享访客只读模式：隐藏所有“写操作”入口（开始分析/HR工作台/批量分析/报告对比/部门报告），
+  // 仅保留“产品介绍”等只读入口，从源头杜绝访客发起新分析。
+  // 登录用户永不被当作访客（避免 sessionStorage 残留标记误伤）；仅未登录的分享访客生效。
+  const guest = isShareGuest() && !user;
   const filteredGroups = NAV_GROUPS
     .filter((group) => {
       if (group.platformAdmin) return adminVerified;
@@ -148,6 +155,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       ...group,
       items: group.items.filter((item) => {
         if (item.platformAdmin) return adminVerified;
+        if (guest && item.writeAction) return false;
         return true;
       }),
     }))

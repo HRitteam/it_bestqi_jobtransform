@@ -36,6 +36,7 @@ import { useIsMobileOrTablet } from "@/hooks/useBreakpoint";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/apiFetch";
 import { copyToClipboard } from "@/lib/clipboard";
+import { markShareGuest } from "@/lib/shareGuest";
 
 const CHAPTERS = [
   { id: "overview", title: "岗位概览", icon: FileText, idx: 1 },
@@ -1039,6 +1040,11 @@ export default function ReportPage() {
   const urlParams = new URLSearchParams(window.location.search);
   const shareToken = urlParams.get("token") || undefined;
   const shareView = urlParams.get("view") as "hr" | "staff" | "executive" | null;
+  // [定制] 带 token 打开报告页即视为分享访客，持久标记只读模式，
+  // 防止跳转到首页后（URL 不再带 token）失去访客身份、绕过只读限制。
+  if (shareToken) {
+    markShareGuest();
+  }
   const { data: fetchedReport, isLoading: isFetching, refetch: refetchReport } = trpc.report.get.useQuery(
     { reportId: params.id || "", token: shareToken },
     {

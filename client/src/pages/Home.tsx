@@ -106,9 +106,9 @@ interface FileSelectionItem {
 
 
 export default function Home() {
-  // [定制] 分享访客只读模式：禁止发起新分析
-  const shareGuest = isShareGuest();
   const { user } = useAuth();
+  // [定制] 分享访客只读模式：禁止发起新分析（登录用户不受影响，避免残留标记误伤）
+  const shareGuest = isShareGuest() && !user;
   const [, setLocation] = useLocation();
   const [inputText, setInputText] = useState("");
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -186,8 +186,8 @@ export default function Home() {
   };
 
   const handleSubmit = async (selectedFilesOverride?: string[]) => {
-    // [定制] 分享访客只读模式下禁止发起新分析
-    if (isShareGuest()) {
+    // [定制] 分享访客只读模式下禁止发起新分析（登录用户不受影响）
+    if (shareGuest) {
       toast.error("分享查看模式下不支持发起新分析");
       return;
     }
