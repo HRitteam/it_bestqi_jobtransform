@@ -5770,25 +5770,45 @@ import puppeteer from "puppeteer-core";
 import { execSync as execSync2 } from "child_process";
 import fs2 from "fs";
 import path2 from "path";
+function isSnapWrapped(p) {
+  try {
+    const real = fs2.realpathSync(p);
+    if (real.includes("/snap/")) return true;
+    const stat = fs2.lstatSync(p);
+    if (stat.size < 4096) {
+      const head = fs2.readFileSync(p, "utf-8").slice(0, 512);
+      if (head.includes("snap") || head.includes("#!/bin/sh") && head.includes("chromium")) return true;
+    }
+  } catch {
+  }
+  return false;
+}
 function findChromiumPath() {
-  const candidates = [
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/google-chrome",
+  const preferred = [
     "/usr/bin/google-chrome-stable",
-    "/snap/bin/chromium",
+    "/usr/bin/google-chrome",
+    "/opt/google/chrome/chrome",
     "/usr/lib/chromium/chromium",
     "/usr/lib/chromium-browser/chromium-browser"
   ];
-  for (const p of candidates) {
+  for (const p of preferred) {
     if (fs2.existsSync(p)) return p;
   }
+  for (const p of ["/usr/bin/chromium", "/usr/bin/chromium-browser"]) {
+    if (fs2.existsSync(p) && !isSnapWrapped(p)) return p;
+  }
+  for (const p of ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/snap/bin/chromium"]) {
+    if (fs2.existsSync(p)) {
+      console.warn(`[PDF Export] \u4EC5\u627E\u5230\u53EF\u80FD\u4E3A snap \u7248\u7684 Chromium: ${p}\uFF0C\u5BFC\u51FA\u53EF\u80FD\u56E0 AppArmor \u5931\u8D25\u3002\u5EFA\u8BAE\u5B89\u88C5 google-chrome-stable(.deb)\u3002`);
+      return p;
+    }
+  }
   try {
-    const result = execSync2("which chromium-browser || which chromium || which google-chrome 2>/dev/null", { encoding: "utf-8" }).trim();
+    const result = execSync2("which google-chrome-stable || which google-chrome || which chromium || which chromium-browser 2>/dev/null", { encoding: "utf-8" }).trim();
     if (result) return result;
   } catch {
   }
-  throw new Error("Chromium not found. Please install: sudo apt install chromium-browser");
+  throw new Error("Chromium/Chrome not found. Please install: sudo apt install -y google-chrome-stable \u6216\u4E0B\u8F7D Google Chrome .deb \u5B89\u88C5");
 }
 async function resolveUser2(req) {
   const iframeUser = req.iframeUser;

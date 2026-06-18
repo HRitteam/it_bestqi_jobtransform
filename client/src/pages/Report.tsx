@@ -1719,10 +1719,10 @@ export default function ReportPage() {
                 <div className="bg-card border border-border rounded-xl p-4 mb-6">
                   <h4 className="text-sm font-medium text-foreground mb-3">技能缺口分析（当前 vs 目标）</h4>
                   <SkillRadar
-                    gaps={reportData.restructuring.newCapabilityModel.slice(0, 8).map((skill: string, idx: number) => {
+                    gaps={(reportData.restructuring.newCapabilityModel as any[]).filter((s: any) => typeof s === "string" && s.trim()).slice(0, 8).map((skill: string, idx: number) => {
                       const currentTasks = reportData.currentWorkflow?.tasks || [];
                       const isExisting = currentTasks.some((t: any) => 
-                        Array.isArray(t.skills) && t.skills.some((s: string) => s.includes(skill) || skill.includes(s))
+                        Array.isArray(t.skills) && t.skills.some((s: any) => typeof s === "string" && (s.includes(skill) || skill.includes(s)))
                       );
                       const seed = (idx * 7 + 3) % 5;
                       const currentLevel = isExisting ? 5 + (seed % 3) : 2 + (seed % 3);

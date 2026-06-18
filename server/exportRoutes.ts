@@ -11,25 +11,49 @@ import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
-/** 自动检测 Chromium/Chrome 可执行文件路径 */
+/** 判断给定可执行路径是否为 snap 包装（snap 版 Chromium 会因 AppArmor 限制导致 puppeteer 连接 DevTools 协议时静默挂死） */
+function isSnapWrapped(p: string): boolean {
+  try {
+    // snap 的 /usr/bin/chromium(-browser) 通常是指向 /snap/bin 的软链或调用 snap 的 shell 包装脚本
+    const real = fs.realpathSync(p);
+    if (real.includes('/snap/')) return true;
+    const stat = fs.lstatSync(p);
+    if (stat.size < 4096) {
+      const head = fs.readFileSync(p, 'utf-8').slice(0, 512);
+      if (head.includes('snap') || head.includes('#!/bin/sh') && head.includes('chromium')) return true;
+    }
+  } catch {}
+  return false;
+}
+
 function findChromiumPath(): string {
-  const candidates = [
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome',
+  // 优先选用真正的 Google Chrome / 非 snap Chromium（.deb 安装），避免 snap 的 AppArmor 沙箱问题
+  const preferred = [
     '/usr/bin/google-chrome-stable',
-    '/snap/bin/chromium',
+    '/usr/bin/google-chrome',
+    '/opt/google/chrome/chrome',
     '/usr/lib/chromium/chromium',
     '/usr/lib/chromium-browser/chromium-browser',
   ];
-  for (const p of candidates) {
+  for (const p of preferred) {
     if (fs.existsSync(p)) return p;
   }
+  // 其次尝试 /usr/bin/chromium(-browser)，但仅当它不是 snap 包装时
+  for (const p of ['/usr/bin/chromium', '/usr/bin/chromium-browser']) {
+    if (fs.existsSync(p) && !isSnapWrapped(p)) return p;
+  }
+  // 最后才接受 snap 路径（可能无法正常工作，但保留兜底）
+  for (const p of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium']) {
+    if (fs.existsSync(p)) {
+      console.warn(`[PDF Export] 仅找到可能为 snap 版的 Chromium: ${p}，导出可能因 AppArmor 失败。建议安装 google-chrome-stable(.deb)。`);
+      return p;
+    }
+  }
   try {
-    const result = execSync('which chromium-browser || which chromium || which google-chrome 2>/dev/null', { encoding: 'utf-8' }).trim();
+    const result = execSync('which google-chrome-stable || which google-chrome || which chromium || which chromium-browser 2>/dev/null', { encoding: 'utf-8' }).trim();
     if (result) return result;
   } catch {}
-  throw new Error('Chromium not found. Please install: sudo apt install chromium-browser');
+  throw new Error('Chromium/Chrome not found. Please install: sudo apt install -y google-chrome-stable 或下载 Google Chrome .deb 安装');
 }
 
 /**

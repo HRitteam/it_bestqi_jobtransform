@@ -271,6 +271,9 @@ const DIMENSION_META: Record<string, { icon: typeof Brain; color: string; gradie
 
 // Fallback dimension matching
 function getDimensionMeta(dim: string) {
+  if (!dim || typeof dim !== "string") {
+    return { key: "", icon: Brain, color: "#A78BFA", gradient: "from-violet-500/20 to-purple-500/10", bg: "bg-violet-500/10" };
+  }
   for (const [key, meta] of Object.entries(DIMENSION_META)) {
     if (dim.includes(key) || key.includes(dim) || dim.includes(key.replace("\u8bad\u7ec3", "")) || dim.includes(key.replace("\u5b66\u4e60", ""))) {
       return { key, ...meta };
@@ -371,6 +374,7 @@ const COURSE_LINKS: Record<string, { slug: string; label: string }> = {
 const AIREADY_BASE_URL = "https://aiready.hrflag.com/module-intro/";
 
 function getCourseLink(name: string): { url: string; label: string } | null {
+  if (!name || typeof name !== "string") return null;
   // Direct match
   if (COURSE_LINKS[name]) {
     return { url: AIREADY_BASE_URL + COURSE_LINKS[name].slug, label: COURSE_LINKS[name].label };
@@ -709,19 +713,21 @@ function CompetencyCard({
 }) {
   const prePct = (comp.preTransformDemand / 5) * 100;
   const postPct = (comp.postTransformDemand / 5) * 100;
-  const termInfo = TERM_EXPLANATIONS[comp.name] || TERM_EXPLANATIONS[comp.name.replace("\uff08", "(").replace("\uff09", ")")] || null;
-  const isTermExpanded = showTermDetail === comp.name;
+  const compName = typeof comp.name === "string" ? comp.name : "";
+  const termInfo = TERM_EXPLANATIONS[compName] || TERM_EXPLANATIONS[compName.replace("\uff08", "(").replace("\uff09", ")")] || null;
+  const isTermExpanded = showTermDetail === compName;
 
   // Try fuzzy match for term
   const fuzzyTermInfo = useMemo(() => {
     if (termInfo) return termInfo;
+    if (!compName) return null;
     for (const [key, val] of Object.entries(TERM_EXPLANATIONS)) {
-      if (comp.name.includes(key) || key.includes(comp.name) || comp.name.replace(/[\uff08\uff09()]/g, "").includes(key.replace(/[\uff08\uff09()]/g, ""))) {
+      if (compName.includes(key) || key.includes(compName) || compName.replace(/[\uff08\uff09()]/g, "").includes(key.replace(/[\uff08\uff09()]/g, ""))) {
         return val;
       }
     }
     return null;
-  }, [comp.name, termInfo]);
+  }, [compName, termInfo]);
 
   return (
     <div className="bg-background/40 border border-white/[0.06] rounded-lg p-3">
