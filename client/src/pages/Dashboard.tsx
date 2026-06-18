@@ -25,12 +25,14 @@ export default function Dashboard() {
   const { data: reportsList, isLoading } = trpc.report.list.useQuery();
   const { data: stats } = trpc.user.stats.useQuery();
   const deleteReport = trpc.report.delete.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("报告已删除");
-      // [修复] 删除后刷新报告列表与统计数据
-      utils.report.list.invalidate();
-      utils.user.stats.invalidate();
       setSelectedReports([]);
+      // [修复] 删除后强制重新拉取报告列表与统计数据，确保页面即时同步（refetch 比 invalidate 更可靠）
+      await Promise.all([
+        utils.report.list.refetch(),
+        utils.user.stats.refetch(),
+      ]);
     },
     onError: (e: any) => { toast.error(`删除失败: ${e?.message || "未知错误"}`); },
   });
@@ -182,6 +184,7 @@ export default function Dashboard() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="搜索岗位名称或公司..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
             </div>
+            {/* [修复] 按需求注释掉“全部部门”下拉筛选
             <Select value={filterDept} onValueChange={setFilterDept}>
               <SelectTrigger className="w-[140px]"><SelectValue placeholder="部门筛选" /></SelectTrigger>
               <SelectContent>
@@ -189,6 +192,7 @@ export default function Dashboard() {
                 {departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
               </SelectContent>
             </Select>
+            */}
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="w-[120px]"><SelectValue placeholder="排序" /></SelectTrigger>
               <SelectContent>
