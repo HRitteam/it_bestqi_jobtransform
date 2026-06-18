@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { GuidedTour } from "@/components/GuidedTour";
 import { apiFetch } from "@/lib/apiFetch";
-import { isShareGuest } from "@/lib/shareGuest";
+import { isReadOnlyShareGuest } from "@/lib/shareGuest";
 
 // [定制] 行业/公司已固定，热门案例只提供“岗位名称 + 岗位介绍”示例，不再注入公司类型/行业信息
 const HOT_CASES = [
@@ -107,8 +107,8 @@ interface FileSelectionItem {
 
 export default function Home() {
   const { user } = useAuth();
-  // [定制] 分享访客只读模式：禁止发起新分析（登录用户不受影响，避免残留标记误伤）
-  const shareGuest = isShareGuest() && !user;
+  // [定制] 分享访客只读模式：禁止发起新分析（真实登录用户不受影响；默认访客也会被正确限制）
+  const shareGuest = isReadOnlyShareGuest(user);
   const [, setLocation] = useLocation();
   const [inputText, setInputText] = useState("");
   const [files, setFiles] = useState<UploadedFile[]>([]);

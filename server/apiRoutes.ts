@@ -99,6 +99,12 @@ export function registerApiRoutes(app: Router) {
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
+      // [修复] 后端防线：分享访客只读模式禁止发起新分析。
+      // 前端在分享上下文下会带上 x-share-guest 请求头，避免访客绕过前端拦截直接调用接口。
+      if (req.headers["x-share-guest"] === "1" && user.role !== "admin") {
+        res.status(403).json({ error: "分享查看模式下不支持发起新分析" });
+        return;
+      }
       const companyId = (req as any).companyId || user.companyId || null;
 
       // ===== [定制] 每日分析次数限制已隐藏：所有用户视为无限配额 =====

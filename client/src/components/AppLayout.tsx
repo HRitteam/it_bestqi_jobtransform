@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { isIframeMode } from "@/lib/iframeContext";
 import { checkAdminFromUrl, isAdminMode, exitAdminMode } from "@/lib/adminAuth";
-import { isShareGuest } from "@/lib/shareGuest";
+import { isReadOnlyShareGuest } from "@/lib/shareGuest";
 import { motion } from "framer-motion";
 import {
   Brain,
@@ -144,8 +144,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   // 通过密码验证（或 ?adminPwd= 参数）后，adminVerified=true，显示全部后台菜单。
   // [定制] 分享访客只读模式：隐藏所有“写操作”入口（开始分析/HR工作台/批量分析/报告对比/部门报告），
   // 仅保留“产品介绍”等只读入口，从源头杜绝访客发起新分析。
-  // 登录用户永不被当作访客（避免 sessionStorage 残留标记误伤）；仅未登录的分享访客生效。
-  const guest = isShareGuest() && !user;
+  // 真实登录用户永不被当作访客（避免 sessionStorage 残留标记误伤）；默认访客(伪 user)也会被正确限制。
+  const guest = isReadOnlyShareGuest(user);
   const filteredGroups = NAV_GROUPS
     .filter((group) => {
       if (group.platformAdmin) return adminVerified;

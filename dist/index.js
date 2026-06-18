@@ -3594,6 +3594,10 @@ function registerApiRoutes(app) {
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
+      if (req.headers["x-share-guest"] === "1" && user.role !== "admin") {
+        res.status(403).json({ error: "\u5206\u4EAB\u67E5\u770B\u6A21\u5F0F\u4E0B\u4E0D\u652F\u6301\u53D1\u8D77\u65B0\u5206\u6790" });
+        return;
+      }
       const companyId = req.companyId || user.companyId || null;
       let dailyRemaining = Number.MAX_SAFE_INTEGER;
       const text2 = req.body.text || "";
@@ -5284,6 +5288,42 @@ function extractJsonFromLLMResponse(raw) {
   }
   return cleaned.trim();
 }
+async function invokeAndParseJson(invoke, isEmpty, label) {
+  const attempt = async () => {
+    const response = await invoke();
+    const content = response?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") {
+      if (content && typeof content === "object") {
+        return { ok: !isEmpty(content), data: content, reason: "empty" };
+      }
+      return { ok: false, data: null, reason: "no_content" };
+    }
+    const parsed = robustParseJson(content);
+    if (parsed.outcome === "failed" || parsed.data == null) {
+      return { ok: false, data: null, reason: parsed.error || "parse_failed" };
+    }
+    if (isEmpty(parsed.data)) {
+      return { ok: false, data: parsed.data, reason: "empty" };
+    }
+    return { ok: true, data: parsed.data };
+  };
+  let last = await attempt();
+  if (!last.ok) {
+    console.warn(`[${label}] \u9996\u6B21\u751F\u6210\u4E0D\u53EF\u7528(reason=${last.reason})\uFF0C\u81EA\u52A8\u91CD\u8BD5\u4E00\u6B21`);
+    try {
+      last = await attempt();
+    } catch (e) {
+      console.error(`[${label}] \u91CD\u8BD5\u8C03\u7528\u5F02\u5E38:`, e?.message || e);
+    }
+  }
+  if (!last.ok) {
+    throw new TRPCError4({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `${label}\u751F\u6210\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\uFF08\u6A21\u578B\u8FD4\u56DE\u5185\u5BB9\u4E0D\u5B8C\u6574\uFF09`
+    });
+  }
+  return last.data;
+}
 var appRouter = router({
   system: systemRouter,
   auth: router({
@@ -5648,9 +5688,9 @@ var appRouter = router({
     generate: protectedProcedure.input(z4.object({ reportId: z4.string(), jobTitle: z4.string(), replaceabilityRate: z4.number(), risks: z4.array(z4.string()), tools: z4.array(z4.string()) })).mutation(async ({ input, ctx }) => {
       const { invokeLLM: invokeLLM2 } = await Promise.resolve().then(() => (init_llm(), llm_exports));
       const llmContext = { companyId: ctx.companyId, userId: ctx.user.id, phone: ctx.userPhone, feature: "action_plan" };
-      const response = await invokeLLM2({
+      const invoke = () => invokeLLM2({
         messages: [
-          { role: "system", content: "\u4F60\u662F\u4E00\u4F4D\u8D44\u6DF1\u7684\u4F01\u4E1AAI\u8F6C\u578B\u987E\u95EE\u3002\u8BF7\u57FA\u4E8E\u5C97\u4F4D\u5206\u6790\u6570\u636E\uFF0C\u751F\u6210\u4E00\u4EFD\u5B63\u5EA6\u884C\u52A8\u8BA1\u5212\u3002\u56DE\u590D\u5FC5\u987B\u662FJSON\u683C\u5F0F\u3002" },
+          { role: "system", content: "\u4F60\u662F\u4E00\u4F4D\u8D44\u6DF1\u7684\u4F01\u4E1AAI\u8F6C\u578B\u987E\u95EE\u3002\u8BF7\u57FA\u4E8E\u5C97\u4F4D\u5206\u6790\u6570\u636E\uFF0C\u751F\u6210\u4E00\u4EFD\u5B63\u5EA6\u884C\u52A8\u8BA1\u5212\u3002\u53EA\u8F93\u51FA\u4E25\u683C\u5408\u6CD5\u7684 JSON\uFF0C\u4E0D\u8981\u5305\u542B\u4EFB\u4F55\u89E3\u91CA\u6027\u6587\u5B57\u6216 markdown \u4EE3\u7801\u5757\u3002" },
           { role: "user", content: `\u8BF7\u4E3A\u4EE5\u4E0B\u5C97\u4F4D\u751F\u6210\u5B63\u5EA6AI\u8F6C\u578B\u884C\u52A8\u8BA1\u5212\uFF1A
 
 \u5C97\u4F4D\uFF1A${input.jobTitle}
@@ -5692,8 +5732,11 @@ AI\u66FF\u4EE3\u7387\uFF1A${input.replaceabilityRate}%
           }
         }
       }, llmContext);
-      const content = response.choices[0]?.message?.content;
-      return typeof content === "string" ? JSON.parse(extractJsonFromLLMResponse(content)) : content;
+      return await invokeAndParseJson(
+        invoke,
+        (d) => !d || !Array.isArray(d.phases) || d.phases.length === 0,
+        "\u884C\u52A8\u8BA1\u5212"
+      );
     })
   }),
   // Executive summary generator (P1-08)
@@ -5701,9 +5744,9 @@ AI\u66FF\u4EE3\u7387\uFF1A${input.replaceabilityRate}%
     generate: protectedProcedure.input(z4.object({ reportId: z4.string(), jobTitle: z4.string(), replaceabilityRate: z4.number(), keyFindings: z4.array(z4.string()), recommendations: z4.array(z4.string()) })).mutation(async ({ input, ctx }) => {
       const { invokeLLM: invokeLLM2 } = await Promise.resolve().then(() => (init_llm(), llm_exports));
       const llmContext = { companyId: ctx.companyId, userId: ctx.user.id, phone: ctx.userPhone, feature: "executive_summary" };
-      const response = await invokeLLM2({
+      const invoke = () => invokeLLM2({
         messages: [
-          { role: "system", content: "\u4F60\u662F\u4E00\u4F4D\u4F01\u4E1A\u7BA1\u7406\u54A8\u8BE2\u987E\u95EE\u3002\u8BF7\u57FA\u4E8E\u5C97\u4F4DAI\u8F6C\u578B\u5206\u6790\u7ED3\u679C\uFF0C\u751F\u6210\u4E00\u4EFD\u9002\u5408\u7BA1\u7406\u5C42\u9605\u8BFB\u7684\u6C47\u62A5\u6458\u8981\u3002\u56DE\u590D\u5FC5\u987B\u662FJSON\u683C\u5F0F\u3002" },
+          { role: "system", content: "\u4F60\u662F\u4E00\u4F4D\u4F01\u4E1A\u7BA1\u7406\u54A8\u8BE2\u987E\u95EE\u3002\u8BF7\u57FA\u4E8E\u5C97\u4F4DAI\u8F6C\u578B\u5206\u6790\u7ED3\u679C\uFF0C\u751F\u6210\u4E00\u4EFD\u9002\u5408\u7BA1\u7406\u5C42\u9605\u8BFB\u7684\u6C47\u62A5\u6458\u8981\u3002\u53EA\u8F93\u51FA\u4E25\u683C\u5408\u6CD5\u7684 JSON\uFF0C\u4E0D\u8981\u5305\u542B\u4EFB\u4F55\u89E3\u91CA\u6027\u6587\u5B57\u6216 markdown \u4EE3\u7801\u5757\u3002" },
           { role: "user", content: `\u8BF7\u4E3A\u4EE5\u4E0B\u5C97\u4F4D\u5206\u6790\u751F\u6210\u7BA1\u7406\u5C42\u6C47\u62A5\u6750\u6599\uFF1A
 
 \u5C97\u4F4D\uFF1A${input.jobTitle}
@@ -5742,8 +5785,11 @@ AI\u66FF\u4EE3\u7387\uFF1A${input.replaceabilityRate}%
           }
         }
       }, llmContext);
-      const content = response.choices[0]?.message?.content;
-      return typeof content === "string" ? JSON.parse(extractJsonFromLLMResponse(content)) : content;
+      return await invokeAndParseJson(
+        invoke,
+        (d) => !d || !Array.isArray(d.slides) || d.slides.length === 0,
+        "\u7BA1\u7406\u5C42\u6C47\u62A5"
+      );
     })
   }),
   // 平台级大模型路由管理

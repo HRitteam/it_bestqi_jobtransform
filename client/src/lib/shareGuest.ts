@@ -6,6 +6,9 @@
 
 const KEY = "shareGuestMode";
 
+/** 默认访客用户的固定标识（与后端 guestUser.ts DEFAULT_GUEST_OPEN_ID 保持一致） */
+const DEFAULT_GUEST_OPEN_ID = "bestqi_guest_default";
+
 /** 标记当前会话为分享访客模式 */
 export function markShareGuest(): void {
   try {
@@ -34,4 +37,27 @@ export function clearShareGuest(): void {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * [修复] 判断是否为"真实登录用户"。
+ * 后端对匿名访客统一返回一个默认访客用户(openId=bestqi_guest_default, loginMethod=default)，
+ * 因此 useAuth().user 对任何访客都非空，不能用 `!user` 判断是否登录。
+ * 真实登录用户：role=admin，或 openId/loginMethod 不是默认访客标识。
+ */
+export function isRealUser(user: any): boolean {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const isDefaultGuest =
+    user.openId === DEFAULT_GUEST_OPEN_ID || user.loginMethod === "default";
+  return !isDefaultGuest;
+}
+
+/**
+ * [修复] 综合判定：当前是否应以"分享访客只读"方式限制写操作。
+ * 仅当处于分享上下文(isShareGuest) 且 不是真实登录用户 时才限制，
+ * 既杜绝默认访客绕过限制，又不误伤真实登录用户。
+ */
+export function isReadOnlyShareGuest(user: any): boolean {
+  return isShareGuest() && !isRealUser(user);
 }

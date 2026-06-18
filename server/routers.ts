@@ -13,6 +13,7 @@ import { nanoid } from "nanoid";
 import { AI_TOOLS_DATABASE, getAllCategories, matchToolsForUseCase, getDomesticFreeTools } from "./toolsDatabase";
 import { getAllAITools, getAIToolCategories, matchToolsFromDB, getDomesticFreeToolsFromDB, upsertAITool, deleteAITool, getAIToolById } from "./db";
 import { brandSettings, reportDistributions, reportFeedback } from "../drizzle/schema";
+import { robustParseJson } from "./jsonRepair";
 
 /**
  * 清理 LLM 返回内容中的 <think>...</think> 标签和 markdown 代码块包裹，
@@ -28,6 +29,58 @@ function extractJsonFromLLMResponse(raw: string): string {
     cleaned = codeBlockMatch[1];
   }
   return cleaned.trim();
+}
+
+/**
+ * [修复] 强健的“调用 LLM + 解析 JSON”封装，用于行动计划/管理层汇报等结构化输出场景。
+ * - 用 robustParseJson 代替裸 JSON.parse，容忍截断/尾随逗号/智能引号/混入说明文字等瀑置
+ * - 解析失败或结果为空时，自动重试一次（许多是偏差性的生成报错）
+ * - 仍失败则抛出可读错误，由上层 toast 提示，而不是把原始 JSON 语法错报给用户
+ * @param invoke 返回 LLM 响应的函数
+ * @param isEmpty 判定解析出的对象是否“内容为空”（如主数组为空）
+ * @param label 用于错误信息的中文名称
+ */
+async function invokeAndParseJson<T = any>(
+  invoke: () => Promise<any>,
+  isEmpty: (data: any) => boolean,
+  label: string
+): Promise<T> {
+  const attempt = async (): Promise<{ ok: boolean; data: any; reason?: string }> => {
+    const response = await invoke();
+    const content = response?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") {
+      // 部分网关可能直接返回对象
+      if (content && typeof content === "object") {
+        return { ok: !isEmpty(content), data: content, reason: "empty" };
+      }
+      return { ok: false, data: null, reason: "no_content" };
+    }
+    const parsed = robustParseJson(content);
+    if (parsed.outcome === "failed" || parsed.data == null) {
+      return { ok: false, data: null, reason: parsed.error || "parse_failed" };
+    }
+    if (isEmpty(parsed.data)) {
+      return { ok: false, data: parsed.data, reason: "empty" };
+    }
+    return { ok: true, data: parsed.data };
+  };
+
+  let last = await attempt();
+  if (!last.ok) {
+    console.warn(`[${label}] 首次生成不可用(reason=${last.reason})，自动重试一次`);
+    try {
+      last = await attempt();
+    } catch (e: any) {
+      console.error(`[${label}] 重试调用异常:`, e?.message || e);
+    }
+  }
+  if (!last.ok) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `${label}生成失败，请稍后重试（模型返回内容不完整）`,
+    });
+  }
+  return last.data as T;
 }
 
 export const appRouter = router({
@@ -474,9 +527,9 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { invokeLLM } = await import("./_core/llm");
         const llmContext = { companyId: ctx.companyId, userId: ctx.user.id, phone: ctx.userPhone, feature: "action_plan" };
-        const response = await invokeLLM({
+        const invoke = () => invokeLLM({
           messages: [
-            { role: "system", content: "你是一位资深的企业AI转型顾问。请基于岗位分析数据，生成一份季度行动计划。回复必须是JSON格式。" },
+            { role: "system", content: "你是一位资深的企业AI转型顾问。请基于岗位分析数据，生成一份季度行动计划。只输出严格合法的 JSON，不要包含任何解释性文字或 markdown 代码块。" },
             { role: "user", content: `请为以下岗位生成季度AI转型行动计划：\n\n岗位：${input.jobTitle}\nAI替代率：${input.replaceabilityRate}%\n主要风险：${input.risks.join("、")}\n推荐工具：${input.tools.join("、")}\n\n请生成4个阶段（每月一个+总结），每个阶段包含目标、具体行动项、预期成果和关键里程碑。` },
           ],
           response_format: {
@@ -511,8 +564,11 @@ export const appRouter = router({
             },
           },
         }, llmContext);
-        const content = response.choices[0]?.message?.content;
-        return typeof content === "string" ? JSON.parse(extractJsonFromLLMResponse(content)) : content;
+        return await invokeAndParseJson(
+          invoke,
+          (d) => !d || !Array.isArray(d.phases) || d.phases.length === 0,
+          "行动计划"
+        );
       }),
   }),
 
@@ -523,9 +579,9 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { invokeLLM } = await import("./_core/llm");
         const llmContext = { companyId: ctx.companyId, userId: ctx.user.id, phone: ctx.userPhone, feature: "executive_summary" };
-        const response = await invokeLLM({
+        const invoke = () => invokeLLM({
           messages: [
-            { role: "system", content: "你是一位企业管理咨询顾问。请基于岗位AI转型分析结果，生成一份适合管理层阅读的汇报摘要。回复必须是JSON格式。" },
+            { role: "system", content: "你是一位企业管理咨询顾问。请基于岗位AI转型分析结果，生成一份适合管理层阅读的汇报摘要。只输出严格合法的 JSON，不要包含任何解释性文字或 markdown 代码块。" },
             { role: "user", content: `请为以下岗位分析生成管理层汇报材料：\n\n岗位：${input.jobTitle}\nAI替代率：${input.replaceabilityRate}%\n关键发现：${input.keyFindings.join("；")}\n建议措施：${input.recommendations.join("；")}\n\n请生成3-5页幻灯片内容，每页包含标题、要点和数据支撑。` },
           ],
           response_format: {
@@ -557,8 +613,11 @@ export const appRouter = router({
             },
           },
         }, llmContext);
-        const content = response.choices[0]?.message?.content;
-        return typeof content === "string" ? JSON.parse(extractJsonFromLLMResponse(content)) : content;
+        return await invokeAndParseJson(
+          invoke,
+          (d) => !d || !Array.isArray(d.slides) || d.slides.length === 0,
+          "管理层汇报"
+        );
       }),
   }),
 

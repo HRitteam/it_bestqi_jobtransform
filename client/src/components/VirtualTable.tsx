@@ -37,14 +37,22 @@ export default function VirtualTable<T extends Record<string, any>>({
   const [scrollTop, setScrollTop] = useState(0);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
+  // [修复] 打印/PDF 导出模式检测：URL 带 ?print=1 或 <html> 有 print-mode 类。
+  // 打印态下虚拟滚动会导致只渲染可视行、容器裁剪、行错位，必须退化为完整渲染的普通表格。
+  const isPrintMode = typeof window !== "undefined" && (
+    new URLSearchParams(window.location.search).get("print") === "1" ||
+    document.documentElement.classList.contains("print-mode")
+  );
+
   const bufferCount = 5;
   const visibleCount = Math.ceil(maxHeight / rowHeight);
   const totalHeight = data.length * rowHeight;
 
-  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - bufferCount);
-  const endIndex = Math.min(data.length, startIndex + visibleCount + bufferCount * 2);
+  // 打印态：渲染全部行、无偏移；普通态：虚拟滚动窗口
+  const startIndex = isPrintMode ? 0 : Math.max(0, Math.floor(scrollTop / rowHeight) - bufferCount);
+  const endIndex = isPrintMode ? data.length : Math.min(data.length, startIndex + visibleCount + bufferCount * 2);
   const visibleData = data.slice(startIndex, endIndex);
-  const offsetY = startIndex * rowHeight;
+  const offsetY = isPrintMode ? 0 : startIndex * rowHeight;
 
   const handleScroll = useCallback(() => {
     if (containerRef.current) {
@@ -73,14 +81,14 @@ export default function VirtualTable<T extends Record<string, any>>({
   };
 
   return (
-    <div className={`border border-border rounded-xl overflow-hidden ${className}`}>
+    <div className={`border border-border rounded-xl ${isPrintMode ? "" : "overflow-hidden"} ${className}`}>
       {/* Header */}
-      <div className="flex bg-layer-2 border-b border-border sticky top-0 z-10">
+      <div className={`flex bg-layer-2 border-b border-border ${isPrintMode ? "" : "sticky top-0 z-10"}`}>
         {expandable && <div className="w-10 shrink-0" />}
         {columns.map(col => (
           <div
             key={col.key}
-            className="px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+            className={`px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider ${isPrintMode ? "whitespace-nowrap" : ""}`}
             style={{ width: col.width || "auto", flex: col.width ? "none" : 1 }}
           >
             {col.title}
@@ -88,14 +96,14 @@ export default function VirtualTable<T extends Record<string, any>>({
         ))}
       </div>
 
-      {/* Scrollable Body */}
+      {/* Body：打印态去掉 maxHeight/overflow/虚拟滚动偏移，完整展开自动分页 */}
       <div
         ref={containerRef}
-        className="overflow-y-auto"
-        style={{ maxHeight }}
+        className={isPrintMode ? "" : "overflow-y-auto"}
+        style={isPrintMode ? undefined : { maxHeight }}
       >
-        <div style={{ height: totalHeight, position: "relative" }}>
-          <div style={{ transform: `translateY(${offsetY}px)` }}>
+        <div style={isPrintMode ? undefined : { height: totalHeight, position: "relative" }}>
+          <div style={isPrintMode ? undefined : { transform: `translateY(${offsetY}px)` }}>
             {visibleData.map((row, i) => {
               const actualIndex = startIndex + i;
               const isExpanded = expandedRows.has(actualIndex);
@@ -106,7 +114,9 @@ export default function VirtualTable<T extends Record<string, any>>({
                     className={`flex items-center border-b border-border/50 transition-colors hover:bg-layer-1/50 ${
                       isExpanded ? "bg-layer-1/30" : ""
                     }`}
-                    style={{ height: rowHeight }}
+                    style={isPrintMode
+                      ? { minHeight: rowHeight, breakInside: "avoid" as any, pageBreakInside: "avoid" as any }
+                      : { height: rowHeight }}
                   >
                     {expandable && (
                       <button
