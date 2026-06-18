@@ -5,6 +5,7 @@ import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import AppLayout from "./components/AppLayout";
+import SiteGate from "./components/SiteGate";
 import AdminGuard from "./components/AdminGuard";
 import Home from "./pages/Home";
 import { lazy, Suspense } from "react";
@@ -76,7 +77,7 @@ function Router() {
               <Route path="/brand-settings" component={BrandSettingsPage} />
               <Route path="/admin-tools" component={AdminToolsPage} />
 
-              {/* ===== 平台管理页面（需管理员密码 / 带 ?adminPwd= 参数）===== */}
+              {/* ===== 平台管理页面（入口仅管理员可见；直接访问 URL 仍需管理员密码 bestqiai2026）===== */}
               <Route path="/llm-manager">
                 <AdminGuard><LlmManagerPage /></AdminGuard>
               </Route>
@@ -100,10 +101,11 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster richColors position="top-right" />
-          {/* [定制] 普通用户无需密码即可访问首页等业务页面；
-              管理后台页面由各自的 AdminGuard 守卫（密码 bestqiai2026，
-              或通过 URL 参数 ?adminPwd=bestqiai2026 免密进入）。 */}
-          <Router />
+          {/* [定制] 全局进站密码门：任何页面都需先输入进站密码 bestqi（分享链接免密）。
+              管理员密码 bestqiai2026 另外控制“模型管理/调用日志”入口可见性。 */}
+          <SiteGate>
+            <Router />
+          </SiteGate>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
