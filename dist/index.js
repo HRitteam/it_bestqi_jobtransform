@@ -5914,12 +5914,34 @@ async function generatePdfCore(reportId, serverPort) {
     const report = result[0];
     let brandLogoUrl = null;
     try {
-      if (report.userId) {
-        const brandRows = await db.select().from(brandSettings).where(eq9(brandSettings.userId, report.userId)).limit(1);
-        if (brandRows.length > 0 && brandRows[0].logoUrl) brandLogoUrl = brandRows[0].logoUrl;
+      if (report.userId != null) {
+        const ownerRows = await db.select().from(brandSettings).where(eq9(brandSettings.userId, report.userId)).limit(1);
+        if (ownerRows.length > 0 && ownerRows[0].logoUrl) brandLogoUrl = ownerRows[0].logoUrl;
+      }
+      if (!brandLogoUrl) {
+        const anyRows = await db.select().from(brandSettings).limit(20);
+        const withLogo = anyRows.find((r) => !!r.logoUrl);
+        if (withLogo?.logoUrl) brandLogoUrl = withLogo.logoUrl;
       }
     } catch (e) {
       console.warn(`[PDF Export] \u67E5\u8BE2\u54C1\u724C Logo \u5931\u8D25\uFF08\u5FFD\u7565\uFF09: ${e?.message || e}`);
+    }
+    let brandLogoDataUri = null;
+    if (brandLogoUrl) {
+      try {
+        const resp = await fetch(brandLogoUrl);
+        if (resp.ok) {
+          const arrayBuf = await resp.arrayBuffer();
+          const contentType = resp.headers.get("content-type") || "image/png";
+          const base64 = Buffer.from(arrayBuf).toString("base64");
+          brandLogoDataUri = `data:${contentType};base64,${base64}`;
+          console.log(`[PDF Export] Brand logo downloaded & inlined as base64 (${(base64.length / 1024).toFixed(1)} KB)`);
+        } else {
+          console.warn(`[PDF Export] \u4E0B\u8F7D\u54C1\u724C Logo \u5931\u8D25 HTTP ${resp.status}\uFF0C\u56DE\u9000\u4F7F\u7528\u539F\u59CB URL`);
+        }
+      } catch (e) {
+        console.warn(`[PDF Export] \u4E0B\u8F7D\u54C1\u724C Logo \u5F02\u5E38\uFF08\u56DE\u9000\u4F7F\u7528\u539F\u59CB URL\uFF09: ${e?.message || e}`);
+      }
     }
     let accessToken = report.shareToken;
     if (!accessToken) {
@@ -6167,23 +6189,29 @@ async function generatePdfCore(reportId, serverPort) {
       `;
       document.head.appendChild(style);
     });
-    if (brandLogoUrl) {
-      console.log(`[PDF Export] Injecting brand logo...`);
-      await page.evaluate((logoUrl) => {
-        if (document.querySelector(".print-brand-header")) return;
+    const logoSrc = brandLogoDataUri || brandLogoUrl;
+    if (logoSrc) {
+      console.log(`[PDF Export] Injecting brand logo... (${brandLogoDataUri ? "base64" : "url"})`);
+      const injected = await page.evaluate((src) => {
+        if (document.querySelector(".print-brand-header img")) return true;
         const main = document.querySelector("main");
-        const titleBlock = main?.querySelector(".mb-8");
-        if (!main || !titleBlock) return;
+        if (!main) return false;
+        const titleBlock = main.querySelector(".mb-8") || main.firstElementChild || main;
         const wrapper = document.createElement("div");
         wrapper.className = "print-brand-header";
         wrapper.style.cssText = "display:block;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e5e7eb;";
         const img = document.createElement("img");
-        img.src = logoUrl;
-        img.setAttribute("crossorigin", "anonymous");
+        img.src = src;
         img.style.cssText = "max-height:48px;max-width:240px;object-fit:contain;display:block;";
         wrapper.appendChild(img);
-        titleBlock.insertBefore(wrapper, titleBlock.firstChild);
-      }, brandLogoUrl);
+        if (titleBlock === main) {
+          main.insertBefore(wrapper, main.firstChild);
+        } else {
+          titleBlock.insertBefore(wrapper, titleBlock.firstChild);
+        }
+        return true;
+      }, logoSrc);
+      console.log(`[PDF Export] Brand logo injected: ${injected}`);
       await page.evaluate(async () => {
         const img = document.querySelector(".print-brand-header img");
         if (img && !img.complete) {

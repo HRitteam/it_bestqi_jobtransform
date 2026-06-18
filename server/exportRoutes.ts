@@ -127,15 +127,43 @@ async function generatePdfCore(reportId: string, serverPort: string) {
     if (result.length === 0) throw new Error("Report not found");
     const report = result[0];
 
-    // [新增] 查询报告所有者的企业品牌 Logo（导出页以 token 模式打开，前端不会拉 brand.get，需服务端注入）
+    // [新增] 查询企业品牌 Logo（导出页以 token 模式打开，前端不会拉 brand.get，需服务端注入）
+    // 注意：该平台为单租户/全局一套品牌（brand_settings 通常仅一条且 userId 可能为 0），
+    // 故采用「优先按报告所有者匹配 → 回退到表中任意一条带 logoUrl 的设置」的稳健策略。
     let brandLogoUrl: string | null = null;
     try {
-      if (report.userId) {
-        const brandRows = await db.select().from(brandSettings).where(eq(brandSettings.userId, report.userId)).limit(1);
-        if (brandRows.length > 0 && brandRows[0].logoUrl) brandLogoUrl = brandRows[0].logoUrl;
+      // 1) 先按报告所有者精确匹配
+      if (report.userId != null) {
+        const ownerRows = await db.select().from(brandSettings).where(eq(brandSettings.userId, report.userId)).limit(1);
+        if (ownerRows.length > 0 && ownerRows[0].logoUrl) brandLogoUrl = ownerRows[0].logoUrl;
+      }
+      // 2) 匹配不到则回退到全局任意一条有 logoUrl 的品牌设置
+      if (!brandLogoUrl) {
+        const anyRows = await db.select().from(brandSettings).limit(20);
+        const withLogo = anyRows.find(r => !!r.logoUrl);
+        if (withLogo?.logoUrl) brandLogoUrl = withLogo.logoUrl;
       }
     } catch (e: any) {
       console.warn(`[PDF Export] 查询品牌 Logo 失败（忽略）: ${e?.message || e}`);
+    }
+
+    // [新增] 服务端下载 Logo 并转为 base64 data URI，彻底规避 puppeteer 渲染时的跨域/防盗链导致图片空白
+    let brandLogoDataUri: string | null = null;
+    if (brandLogoUrl) {
+      try {
+        const resp = await fetch(brandLogoUrl);
+        if (resp.ok) {
+          const arrayBuf = await resp.arrayBuffer();
+          const contentType = resp.headers.get('content-type') || 'image/png';
+          const base64 = Buffer.from(arrayBuf).toString('base64');
+          brandLogoDataUri = `data:${contentType};base64,${base64}`;
+          console.log(`[PDF Export] Brand logo downloaded & inlined as base64 (${(base64.length / 1024).toFixed(1)} KB)`);
+        } else {
+          console.warn(`[PDF Export] 下载品牌 Logo 失败 HTTP ${resp.status}，回退使用原始 URL`);
+        }
+      } catch (e: any) {
+        console.warn(`[PDF Export] 下载品牌 Logo 异常（回退使用原始 URL）: ${e?.message || e}`);
+      }
     }
 
     // 确保有 shareToken
@@ -399,24 +427,35 @@ async function generatePdfCore(reportId: string, serverPort: string) {
     });
 
     // [新增] 注入企业品牌 Logo 到报告头部（前端 token 模式下不会拉 brand.get，故由服务端注入）
-    if (brandLogoUrl) {
-      console.log(`[PDF Export] Injecting brand logo...`);
-      await page.evaluate((logoUrl: string) => {
+    // 优先使用 base64 data URI（无跨域问题），下载失败时回退原始 URL
+    const logoSrc = brandLogoDataUri || brandLogoUrl;
+    if (logoSrc) {
+      console.log(`[PDF Export] Injecting brand logo... (${brandLogoDataUri ? 'base64' : 'url'})`);
+      const injected = await page.evaluate((src: string) => {
         // 若页面已存在品牌头部则跳过
-        if (document.querySelector('.print-brand-header')) return;
+        if (document.querySelector('.print-brand-header img')) return true;
         const main = document.querySelector('main');
-        const titleBlock = main?.querySelector('.mb-8');
-        if (!main || !titleBlock) return;
+        if (!main) return false;
+        // 插入点：优先报告标题块(.mb-8)，其次 main 的第一个子元素，兵底直接 main
+        const titleBlock = (main.querySelector('.mb-8') as HTMLElement | null)
+          || (main.firstElementChild as HTMLElement | null)
+          || main;
         const wrapper = document.createElement('div');
         wrapper.className = 'print-brand-header';
         wrapper.style.cssText = 'display:block;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e5e7eb;';
         const img = document.createElement('img');
-        img.src = logoUrl;
-        img.setAttribute('crossorigin', 'anonymous');
+        img.src = src;
         img.style.cssText = 'max-height:48px;max-width:240px;object-fit:contain;display:block;';
         wrapper.appendChild(img);
-        titleBlock.insertBefore(wrapper, titleBlock.firstChild);
-      }, brandLogoUrl);
+        // 若 titleBlock 是 main 本身，则插到最前；否则插到 titleBlock 内部最前
+        if (titleBlock === main) {
+          main.insertBefore(wrapper, main.firstChild);
+        } else {
+          titleBlock.insertBefore(wrapper, titleBlock.firstChild);
+        }
+        return true;
+      }, logoSrc);
+      console.log(`[PDF Export] Brand logo injected: ${injected}`);
       // 等待 Logo 图片加载完成，避免 PDF 渲染时图片空白
       await page.evaluate(async () => {
         const img = document.querySelector('.print-brand-header img') as HTMLImageElement | null;
