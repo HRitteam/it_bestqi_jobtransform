@@ -11,7 +11,6 @@ import {
   X,
   AlertTriangle,
   CheckSquare,
-  Building2,
 } from "lucide-react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
@@ -28,7 +27,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { GuidedTour } from "@/components/GuidedTour";
 import { apiFetch } from "@/lib/apiFetch";
 import { isShareGuest } from "@/lib/shareGuest";
-import { FIXED_INDUSTRY, FIXED_COMPANY_NAME, FIXED_COMPANY_PROFILE } from "@shared/bestqiConstants";
 
 // [定制] 行业/公司已固定，热门案例只提供“岗位名称 + 岗位介绍”示例，不再注入公司类型/行业信息
 const HOT_CASES = [
@@ -319,39 +317,8 @@ export default function Home() {
           </p>
         </motion.div>
 
-        {/* [定制] 行业与公司信息已在后端固定注入，首页不再要求用户输入。
-            用户只需填写“岗位名称”与“岗位介绍（可选输入或上传）”。 */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springPresets.gentle, delay: 0.05 }}
-          className="glass-card mb-6 flex items-center gap-3"
-        >
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-            <CheckSquare className="w-4.5 h-4.5 text-primary" />
-          </div>
-          <p className="text-sm text-muted-foreground">
-            分析将基于企业背景：<span className="text-foreground font-medium">{FIXED_COMPANY_NAME}</span>
-            （{FIXED_INDUSTRY}）。
-          </p>
-        </motion.div>
-
-        {/* [定制] 固定公司简介完整展示（只读） */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springPresets.gentle, delay: 0.07 }}
-          className="glass-card mb-6"
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <Building2 className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium text-foreground">公司简介</span>
-            <span className="text-xs text-muted-foreground">（本次分析的企业背景，不可修改）</span>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
-            {FIXED_COMPANY_PROFILE}
-          </p>
-        </motion.div>
+        {/* [定制] 行业、公司背景与简介均为系统内置默认值，提交分析时自动写入，
+            不在首页展示，用户只需填写“岗位名称”与“岗位介绍（可选输入或上传）”。 */}
 
         {/* Input Area */}
         <motion.div

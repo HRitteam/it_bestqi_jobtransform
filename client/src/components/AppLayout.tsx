@@ -65,8 +65,9 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "设置",
     items: [
-      { icon: Palette, label: "品牌定制", path: "/brand-settings" },
-      { icon: Wrench, label: "工具管理", path: "/admin-tools" },
+      // [定制] 品牌定制/工具管理 仅平台管理员可见
+      { icon: Palette, label: "品牌定制", path: "/brand-settings", platformAdmin: true },
+      { icon: Wrench, label: "工具管理", path: "/admin-tools", platformAdmin: true },
       { icon: Brain, label: "产品介绍", path: "/about" },
     ],
   },
@@ -219,8 +220,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
           {/* Brand area - Logo + text */}
           <div className="p-4 pb-2">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
-                <Brain className="w-5 h-5 text-primary" />
+              {/* [定制] 品牌图标替换为公司 logo：原色不变，加浅色圆角底衬以融入深色侧边栏 */}
+              <div className="w-9 h-9 rounded-xl bg-white/90 flex items-center justify-center shrink-0 px-1">
+                <img src="/bestqi-logo.png" alt="BestQI" className="w-full h-auto object-contain" />
               </div>
               {!sidebarCollapsed && (
                 <div className="flex flex-col min-w-0">
@@ -230,12 +232,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
                   <span className="text-[11px] text-primary/80 leading-tight">
                     岗位/职能AI转型分析平台
                   </span>
-                </div>
-              )}
-              {/* [定制] 公司 logo：原色不变，加浅色圆角底衡以融入深色侧边栏 */}
-              {!sidebarCollapsed && (
-                <div className="ml-auto shrink-0 rounded-md bg-white/90 px-1.5 py-1 flex items-center">
-                  <img src="/bestqi-logo.png" alt="BestQI" className="h-4 w-auto" />
                 </div>
               )}
             </div>
