@@ -4,6 +4,7 @@ import { reports, reportDistributions } from "../drizzle/schema";
 import { eq, or, inArray } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { authenticateAdmin } from "./_core/adminIdentity";
+import { getOrCreateGuestUser } from "./guestUser";
 import { checkPermission } from "./routers";
 import type { User } from "../drizzle/schema";
 import puppeteer from "puppeteer-core";
@@ -66,7 +67,15 @@ async function resolveUser(req: Request): Promise<User | null> {
   const adminUser = await authenticateAdmin(req);
   if (adminUser) return adminUser;
   try {
-    return await sdk.authenticateRequest(req);
+    const u = await sdk.authenticateRequest(req);
+    if (u) return u;
+  } catch {
+    // 忽略，走下方访客兑底
+  }
+  // [修复] 与 tRPC createContext 保持一致：OAuth/Cookie 认证失败时回退为默认访客用户。
+  // 否则匿名访客提交的报告(report.userId=guest)在 REST 导出接口会被误拦为 403。
+  try {
+    return await getOrCreateGuestUser();
   } catch {
     return null;
   }
@@ -497,7 +506,10 @@ export function registerExportRoutes(app: Router) {
           }
         }
       }
-      if (!hasAccess) { res.status(403).json({ error: "Access denied" }); return; }
+      if (!hasAccess) {
+        console.warn(`[PDF Export] Access denied (POST): reportId=${reportId}, user=${user ? `${user.id}/${user.role}` : "null"}, report.userId=${report.userId}, isPublic=${(report as any).isPublic}, tokenProvided=${!!token}, shareTokenMatch=${token ? report.shareToken === token : false}`);
+        res.status(403).json({ error: "Access denied" }); return;
+      }
 
       // [修复] 只有分析完成的报告才能生成 PDF，否则页面无完整数据，导致空白或超时
       if ((report as any).status && (report as any).status !== "completed") {
@@ -591,7 +603,10 @@ export function registerExportRoutes(app: Router) {
       } else if (token) {
         if (report.shareToken === token) hasAccess = true;
       }
-      if (!hasAccess) { res.status(403).json({ error: "Access denied" }); return; }
+      if (!hasAccess) {
+        console.warn(`[PDF Export] Access denied (GET): reportId=${reportId}, user=${user ? `${user.id}/${user.role}` : "null"}, report.userId=${report.userId}, isPublic=${report.isPublic}, tokenProvided=${!!token}`);
+        res.status(403).json({ error: "Access denied" }); return;
+      }
 
       // 如果有缓存的 PDF，重定向到下载 URL
       if (report.pdfStatus === "ready" && report.pdfUrl) {

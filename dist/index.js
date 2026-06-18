@@ -5816,7 +5816,12 @@ async function resolveUser2(req) {
   const adminUser = await authenticateAdmin(req);
   if (adminUser) return adminUser;
   try {
-    return await sdk.authenticateRequest(req);
+    const u = await sdk.authenticateRequest(req);
+    if (u) return u;
+  } catch {
+  }
+  try {
+    return await getOrCreateGuestUser();
   } catch {
     return null;
   }
@@ -6207,6 +6212,7 @@ function registerExportRoutes(app) {
         }
       }
       if (!hasAccess) {
+        console.warn(`[PDF Export] Access denied (POST): reportId=${reportId}, user=${user ? `${user.id}/${user.role}` : "null"}, report.userId=${report.userId}, isPublic=${report.isPublic}, tokenProvided=${!!token}, shareTokenMatch=${token ? report.shareToken === token : false}`);
         res.status(403).json({ error: "Access denied" });
         return;
       }
@@ -6286,6 +6292,7 @@ function registerExportRoutes(app) {
         if (report.shareToken === token) hasAccess = true;
       }
       if (!hasAccess) {
+        console.warn(`[PDF Export] Access denied (GET): reportId=${reportId}, user=${user ? `${user.id}/${user.role}` : "null"}, report.userId=${report.userId}, isPublic=${report.isPublic}, tokenProvided=${!!token}`);
         res.status(403).json({ error: "Access denied" });
         return;
       }
