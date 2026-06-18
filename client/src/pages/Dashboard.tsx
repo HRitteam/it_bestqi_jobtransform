@@ -198,9 +198,6 @@ export default function Dashboard() {
             </Select>
             <Button onClick={() => navigate("/")} size="sm"><Plus className="w-4 h-4 mr-1" />新建分析</Button>
             <Button onClick={() => navigate("/batch")} size="sm" variant="outline"><FileText className="w-4 h-4 mr-1" />批量导入</Button>
-            <Button onClick={handleBatchExport} size="sm" variant="outline" disabled={selectedReports.length === 0}>
-              <Download className="w-4 h-4 mr-1" />批量导出{selectedReports.length > 0 && ` (${selectedReports.length})`}
-            </Button>
           </div>
 
           {/* Report list */}
