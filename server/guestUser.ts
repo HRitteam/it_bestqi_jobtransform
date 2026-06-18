@@ -92,12 +92,22 @@ export async function getOrCreateGuestUser(): Promise<User> {
     }
 
     // 3) 不存在则创建
-    await db.insert(usersTable).values({
-      openId: DEFAULT_GUEST_OPEN_ID,
-      name: "普通用户",
-      role: "user",
-      tier: "free",
-    });
+    // [修复] 并发请求会同时查不到再同时 insert，第二个触发 users_openId_unique 唯一键冲突。
+    //        改为「忽略重复键」插入，再统一重查，保证返回数据库真实用户（id 稳定），消除 Duplicate 报错。
+    try {
+      await db.insert(usersTable).values({
+        openId: DEFAULT_GUEST_OPEN_ID,
+        name: "普通用户",
+        role: "user",
+        tier: "free",
+      });
+    } catch (insertErr: any) {
+      // 唯一键冲突说明已被并发请求创建，忽略，下面重查即可
+      const code = insertErr?.cause?.code || insertErr?.code;
+      if (code !== "ER_DUP_ENTRY") {
+        throw insertErr;
+      }
+    }
     const created = await db
       .select()
       .from(usersTable)

@@ -51,7 +51,35 @@ async function resolveUser(req: Request): Promise<User | null> {
 /**
  * 后台 PDF 生成任务（异步执行，不阻塞请求）
  */
+// [修复] 记录正在生成中的浏览器，供总超时熄断时强制关闭，避免 Chromium 进程泄漏
+const activeBrowsers = new Map<string, any>();
+
 async function generatePdfInBackground(reportId: string, serverPort: string) {
+  // [修复] 总超时熄断：整个生成过程最多 240 秒，超时即主动报错并置 error，避免无限挂起卡 90%
+  const OVERALL_TIMEOUT_MS = 240000;
+  let timedOut = false;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => { timedOut = true; reject(new Error("PDF生成总超时(240s)，可能页面图表渲染过慢，请重试")); }, OVERALL_TIMEOUT_MS);
+  });
+  try {
+    await Promise.race([generatePdfCore(reportId, serverPort), timeoutPromise]);
+  } catch (error: any) {
+    // 超时熄断时强制关闭残留浏览器
+    const stuckBrowser = activeBrowsers.get(reportId);
+    if (stuckBrowser) { try { await stuckBrowser.close(); } catch {} activeBrowsers.delete(reportId); }
+    console.error(`[PDF Export] Background task failed for ${reportId}${timedOut ? " (总超时熄断)" : ""}:`, error?.message || error);
+    try {
+      const db = await getDb();
+      if (db) {
+        await db.update(reports)
+          .set({ pdfStatus: "error", pdfError: (error?.message || "Unknown error").slice(0, 500) } as any)
+          .where(eq(reports.reportId, reportId));
+      }
+    } catch {}
+  }
+}
+
+async function generatePdfCore(reportId: string, serverPort: string) {
   let browser: any = null;
   try {
     const db = await getDb();
@@ -93,8 +121,9 @@ async function generatePdfInBackground(reportId: string, serverPort: string) {
         '--disable-extensions',
         '--disable-background-networking',
       ],
-      protocolTimeout: 1800000, // 30分钟协议超时
+      protocolTimeout: 300000, // [修复] 30分钟→ 5分钟，避免协议层长时间挂起
     });
+    activeBrowsers.set(reportId, browser); // [修复] 注册，供总超时熄断强制关闭
     const page = await browser.newPage();
     await page.setViewport({ width: 1200, height: 800 });
 
@@ -116,10 +145,11 @@ async function generatePdfInBackground(reportId: string, serverPort: string) {
 
     // 等待报告主内容出现
     console.log(`[PDF Export] Waiting for content...`);
+    // [修复] 原 5分钟/2分钟 超时会在选择器未出现时白白等满，叠加后远超前端 300s 轮询；压缩到秒级
     try {
-      await page.waitForSelector('main h1, main h2, [class*="report"], [class*="Report"]', { timeout: 300000 }); // 5分钟
+      await page.waitForSelector('main h1, main h2, [class*="report"], [class*="Report"]', { timeout: 25000 }); // 25秒
     } catch {
-      await page.waitForSelector('main, #root', { timeout: 120000 }).catch(() => {}); // 2分钟
+      await page.waitForSelector('main, #root', { timeout: 10000 }).catch(() => {}); // 10秒
     }
 
     // 强制切换为 light 主题，确保 PDF 在白色背景上可读
@@ -326,7 +356,7 @@ async function generatePdfInBackground(reportId: string, serverPort: string) {
 
     // 等待图表渲染（图表需要时间重绘）
     console.log(`[PDF Export] Waiting for charts...`);
-    await new Promise(r => setTimeout(r, 10000));
+    await new Promise(r => setTimeout(r, 4000)); // [修复] 10s→4s
 
     // 滚动到底部加载所有懒加载内容（大页面需要更多时间）
     console.log(`[PDF Export] Scrolling to load all content...`);
@@ -349,7 +379,7 @@ async function generatePdfInBackground(reportId: string, serverPort: string) {
       });
     });
     // 等待所有懒加载内容和图表完成渲染
-    await new Promise(r => setTimeout(r, 5000));
+    await new Promise(r => setTimeout(r, 3000)); // [修复] 5s→3s
 
     // 生成 PDF（增加超时以支持大页面）
     console.log(`[PDF Export] Generating PDF buffer...`);
@@ -358,11 +388,12 @@ async function generatePdfInBackground(reportId: string, serverPort: string) {
       printBackground: true,
       margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
       preferCSSPageSize: false,
-      timeout: 1800000, // 30分钟超时
+      timeout: 180000, // [修复] 30分钟→ 3分钟
     });
 
     await browser.close();
     browser = null;
+    activeBrowsers.delete(reportId); // [修复] 成功后清理注册
 
     // 验证 PDF 完整性（最小有效 PDF 约 1KB，正常报告应 > 100KB）
     // 注意：Puppeteer page.pdf() 返回 Uint8Array，需要先转为 Buffer
@@ -398,15 +429,8 @@ async function generatePdfInBackground(reportId: string, serverPort: string) {
   } catch (error: any) {
     console.error(`[PDF Export] Background task failed for ${reportId}:`, error);
     if (browser) { try { await browser.close(); } catch {} }
-    // 更新数据库状态为 error
-    try {
-      const db = await getDb();
-      if (db) {
-        await db.update(reports)
-          .set({ pdfStatus: "error", pdfError: error.message?.slice(0, 500) || "Unknown error" } as any)
-          .where(eq(reports.reportId, reportId));
-      }
-    } catch {}
+    activeBrowsers.delete(reportId); // [修复] 失败后清理注册
+    throw error; // [修复] 向上抛出，由外层 generatePdfInBackground 统一置 error 状态
   }
 }
 

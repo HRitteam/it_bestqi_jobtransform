@@ -1449,12 +1449,19 @@ async function getOrCreateGuestUser() {
       cachedGuestUser = existing[0];
       return cachedGuestUser;
     }
-    await db.insert(users).values({
-      openId: DEFAULT_GUEST_OPEN_ID,
-      name: "\u666E\u901A\u7528\u6237",
-      role: "user",
-      tier: "free"
-    });
+    try {
+      await db.insert(users).values({
+        openId: DEFAULT_GUEST_OPEN_ID,
+        name: "\u666E\u901A\u7528\u6237",
+        role: "user",
+        tier: "free"
+      });
+    } catch (insertErr) {
+      const code = insertErr?.cause?.code || insertErr?.code;
+      if (code !== "ER_DUP_ENTRY") {
+        throw insertErr;
+      }
+    }
     const created = await db.select().from(users).where(eq2(users.openId, DEFAULT_GUEST_OPEN_ID)).limit(1);
     if (created.length > 0) {
       cachedGuestUser = created[0];
@@ -5794,7 +5801,38 @@ async function resolveUser2(req) {
     return null;
   }
 }
+var activeBrowsers = /* @__PURE__ */ new Map();
 async function generatePdfInBackground(reportId, serverPort) {
+  const OVERALL_TIMEOUT_MS = 24e4;
+  let timedOut = false;
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => {
+      timedOut = true;
+      reject(new Error("PDF\u751F\u6210\u603B\u8D85\u65F6(240s)\uFF0C\u53EF\u80FD\u9875\u9762\u56FE\u8868\u6E32\u67D3\u8FC7\u6162\uFF0C\u8BF7\u91CD\u8BD5"));
+    }, OVERALL_TIMEOUT_MS);
+  });
+  try {
+    await Promise.race([generatePdfCore(reportId, serverPort), timeoutPromise]);
+  } catch (error) {
+    const stuckBrowser = activeBrowsers.get(reportId);
+    if (stuckBrowser) {
+      try {
+        await stuckBrowser.close();
+      } catch {
+      }
+      activeBrowsers.delete(reportId);
+    }
+    console.error(`[PDF Export] Background task failed for ${reportId}${timedOut ? " (\u603B\u8D85\u65F6\u7184\u65AD)" : ""}:`, error?.message || error);
+    try {
+      const db = await getDb();
+      if (db) {
+        await db.update(reports).set({ pdfStatus: "error", pdfError: (error?.message || "Unknown error").slice(0, 500) }).where(eq9(reports.reportId, reportId));
+      }
+    } catch {
+    }
+  }
+}
+async function generatePdfCore(reportId, serverPort) {
   let browser = null;
   try {
     const db = await getDb();
@@ -5826,9 +5864,10 @@ async function generatePdfInBackground(reportId, serverPort) {
         "--disable-extensions",
         "--disable-background-networking"
       ],
-      protocolTimeout: 18e5
-      // 30分钟协议超时
+      protocolTimeout: 3e5
+      // [修复] 30分钟→ 5分钟，避免协议层长时间挂起
     });
+    activeBrowsers.set(reportId, browser);
     const page = await browser.newPage();
     await page.setViewport({ width: 1200, height: 800 });
     page.on("console", (msg) => {
@@ -5845,9 +5884,9 @@ async function generatePdfInBackground(reportId, serverPort) {
     }
     console.log(`[PDF Export] Waiting for content...`);
     try {
-      await page.waitForSelector('main h1, main h2, [class*="report"], [class*="Report"]', { timeout: 3e5 });
+      await page.waitForSelector('main h1, main h2, [class*="report"], [class*="Report"]', { timeout: 25e3 });
     } catch {
-      await page.waitForSelector("main, #root", { timeout: 12e4 }).catch(() => {
+      await page.waitForSelector("main, #root", { timeout: 1e4 }).catch(() => {
       });
     }
     console.log(`[PDF Export] Switching to light theme for PDF...`);
@@ -6049,7 +6088,7 @@ async function generatePdfInBackground(reportId, serverPort) {
       document.head.appendChild(style);
     });
     console.log(`[PDF Export] Waiting for charts...`);
-    await new Promise((r) => setTimeout(r, 1e4));
+    await new Promise((r) => setTimeout(r, 4e3));
     console.log(`[PDF Export] Scrolling to load all content...`);
     await page.evaluate(async () => {
       await new Promise((resolve) => {
@@ -6069,18 +6108,19 @@ async function generatePdfInBackground(reportId, serverPort) {
         }, 150);
       });
     });
-    await new Promise((r) => setTimeout(r, 5e3));
+    await new Promise((r) => setTimeout(r, 3e3));
     console.log(`[PDF Export] Generating PDF buffer...`);
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
       margin: { top: "10mm", right: "10mm", bottom: "10mm", left: "10mm" },
       preferCSSPageSize: false,
-      timeout: 18e5
-      // 30分钟超时
+      timeout: 18e4
+      // [修复] 30分钟→ 3分钟
     });
     await browser.close();
     browser = null;
+    activeBrowsers.delete(reportId);
     const pdfNodeBuffer = Buffer.from(pdfBuffer);
     const pdfSize = pdfNodeBuffer.length;
     console.log(`[PDF Export] PDF generated, size: ${pdfSize} bytes`);
@@ -6109,13 +6149,8 @@ async function generatePdfInBackground(reportId, serverPort) {
       } catch {
       }
     }
-    try {
-      const db = await getDb();
-      if (db) {
-        await db.update(reports).set({ pdfStatus: "error", pdfError: error.message?.slice(0, 500) || "Unknown error" }).where(eq9(reports.reportId, reportId));
-      }
-    } catch {
-    }
+    activeBrowsers.delete(reportId);
+    throw error;
   }
 }
 function registerExportRoutes(app) {
