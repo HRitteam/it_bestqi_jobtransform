@@ -9,6 +9,7 @@ import {
 import { isIframeMode } from "@/lib/iframeContext";
 import { checkAdminFromUrl, isAdminMode, exitAdminMode } from "@/lib/adminAuth";
 import { isReadOnlyShareGuest } from "@/lib/shareGuest";
+import { toast } from "sonner";
 import { motion } from "framer-motion";
 import {
   Brain,
@@ -142,8 +143,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   // [定制] 菜单可见性：未验证管理员只能看到普通菜单（开始分析/产品介绍）；
   // 通过密码验证（或 ?adminPwd= 参数）后，adminVerified=true，显示全部后台菜单。
-  // [定制] 分享访客只读模式：隐藏所有“写操作”入口（开始分析/HR工作台/批量分析/报告对比/部门报告），
-  // 仅保留“产品介绍”等只读入口，从源头杜绝访客发起新分析。
+  // [修复] 分享访客只读模式：菜单照常显示（保留完整界面），但点击写操作入口时拦截并提示，
+  // 不再整组隐藏。后端已对 /api/analysis/submit 加 x-share-guest 防线，防止绕过。
   // 真实登录用户永不被当作访客（避免 sessionStorage 残留标记误伤）；默认访客(伪 user)也会被正确限制。
   const guest = isReadOnlyShareGuest(user);
   const filteredGroups = NAV_GROUPS
@@ -155,7 +156,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       ...group,
       items: group.items.filter((item) => {
         if (item.platformAdmin) return adminVerified;
-        if (guest && item.writeAction) return false;
+        // 分享访客不再隐藏写操作菜单，仅在点击时拦截
         return true;
       }),
     }))
@@ -273,6 +274,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
                       <button
                         key={item.path}
                         onClick={() => {
+                          // [修复] 分享访客点击写操作入口：拦截并提示，不跳转
+                          if (guest && item.writeAction) {
+                            toast.info("分享查看模式下不支持此操作，请登录后使用完整功能");
+                            return;
+                          }
                           setLocation(item.path);
                           if (isMobile) setMobileMenuOpen(false);
                         }}
