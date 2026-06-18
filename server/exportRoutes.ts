@@ -104,9 +104,15 @@ async function generatePdfInBackground(reportId: string, serverPort: string) {
     });
     page.on('pageerror', (err: any) => console.log(`[PDF Export] Page exception: ${err.message}`));
 
-    // 导航到页面 - 增加超时到 120 秒
+    // 导航到页面：先用 domcontentloaded 快速进页，再等网络基本空闲
+    // [修复] 原 networkidle0(500ms 零请求) 对含 ECharts/轮询接口的页面过严，改为 networkidle2 并加容错
     console.log(`[PDF Export] Navigating...`);
-    await page.goto(pageUrl, { waitUntil: 'networkidle0', timeout: 600000 }); // 10分钟导航超时
+    try {
+      await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 180000 }); // 3分钟
+    } catch (navErr: any) {
+      console.log(`[PDF Export] networkidle2 超时，回退到 domcontentloaded: ${navErr.message}`);
+      await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {}); // 2分钟
+    }
 
     // 等待报告主内容出现
     console.log(`[PDF Export] Waiting for content...`);
@@ -373,7 +379,8 @@ async function generatePdfInBackground(reportId: string, serverPort: string) {
     }
 
     // 保存到本地文件
-    const pdfDir = path.resolve(process.cwd(), 'dist', 'public', 'exports', 'pdf');
+    // [修复] PDF 写到持久化目录，避免 vite build(emptyOutDir) 清空 dist/public 后丢失文件
+    const pdfDir = path.resolve(process.cwd(), 'storage', 'exports', 'pdf');
     if (!fs.existsSync(pdfDir)) {
       fs.mkdirSync(pdfDir, { recursive: true });
     }
@@ -444,6 +451,12 @@ export function registerExportRoutes(app: Router) {
       }
       if (!hasAccess) { res.status(403).json({ error: "Access denied" }); return; }
 
+      // [修复] 只有分析完成的报告才能生成 PDF，否则页面无完整数据，导致空白或超时
+      if ((report as any).status && (report as any).status !== "completed") {
+        res.status(409).json({ error: "报告尚未分析完成，请等分析完成后再导出 PDF" });
+        return;
+      }
+
       // 检查是否已有缓存的 PDF
       const pdfStatus = (report as any).pdfStatus || "idle";
       const pdfUrl = (report as any).pdfUrl;
@@ -455,9 +468,16 @@ export function registerExportRoutes(app: Router) {
       }
 
       if (!force && pdfStatus === "generating") {
-        // 正在生成中
-        res.json({ status: "generating", message: "PDF正在生成中，请稍候..." });
-        return;
+        // [修复] 僵死检测：若 generating 状态超过 6 分钟未更新，视为后台任务已崩溃/丢失，强制重启
+        const updatedAt = (report as any).updatedAt ? new Date((report as any).updatedAt).getTime() : 0;
+        const stuckMs = Date.now() - updatedAt;
+        if (updatedAt > 0 && stuckMs < 6 * 60 * 1000) {
+          // 未超时，确实在生成中
+          res.json({ status: "generating", message: "PDF正在生成中，请稍候..." });
+          return;
+        }
+        // 否则落到下方重新启动任务（僵死恢复）
+        console.warn(`[PDF Export] 检测到 ${reportId} 状态僵死在 generating 超过 6 分钟，强制重启任务`);
       }
 
       // 启动后台生成任务

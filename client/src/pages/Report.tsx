@@ -2057,8 +2057,8 @@ export default function ReportPage() {
                   let elapsed = 0;
                   const pollInterval = setInterval(async () => {
                     elapsed += 3;
-                    // 模拟进度（最多到90%，剩下10%等完成）
-                    setPdfProgress(Math.min(90, Math.round((elapsed / 60) * 90)));
+                    // 模拟进度（最多到90%，剩下10%等完成）；按 300 秒总时长换算
+                    setPdfProgress(Math.min(90, Math.round((elapsed / 270) * 90)));
 
                     try {
                       const statusResp = await apiFetch(`/api/export/${params.id}/pdf/status`);
@@ -2081,8 +2081,8 @@ export default function ReportPage() {
                       }
                     } catch {}
 
-                    // 超时 120 秒后停止轮询
-                    if (elapsed >= 120) {
+                    // 超时 300 秒后停止轮询
+                    if (elapsed >= 300) {
                       clearInterval(pollInterval);
                       setPdfExportStatus('error');
                       setPdfExportError('生成超时，请稍后重试');

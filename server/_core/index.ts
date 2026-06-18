@@ -59,6 +59,10 @@ async function startServer() {
   );
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
+    // [修复] 开发环境也需挂载 PDF 导出持久化目录，否则 vite 下 /exports 访问不到
+    const expressMod = (await import("express")).default;
+    const pathMod = (await import("path")).default;
+    app.use("/exports", expressMod.static(pathMod.resolve(process.cwd(), "storage", "exports")));
     // 动态导入，仅开发环境加载 vite（生产环境不会执行到这里）
     const { setupVite } = await import("./vite");
     await setupVite(app, server);

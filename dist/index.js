@@ -5836,7 +5836,13 @@ async function generatePdfInBackground(reportId, serverPort) {
     });
     page.on("pageerror", (err) => console.log(`[PDF Export] Page exception: ${err.message}`));
     console.log(`[PDF Export] Navigating...`);
-    await page.goto(pageUrl, { waitUntil: "networkidle0", timeout: 6e5 });
+    try {
+      await page.goto(pageUrl, { waitUntil: "networkidle2", timeout: 18e4 });
+    } catch (navErr) {
+      console.log(`[PDF Export] networkidle2 \u8D85\u65F6\uFF0C\u56DE\u9000\u5230 domcontentloaded: ${navErr.message}`);
+      await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 12e4 }).catch(() => {
+      });
+    }
     console.log(`[PDF Export] Waiting for content...`);
     try {
       await page.waitForSelector('main h1, main h2, [class*="report"], [class*="Report"]', { timeout: 3e5 });
@@ -6085,7 +6091,7 @@ async function generatePdfInBackground(reportId, serverPort) {
     if (header !== "%PDF-") {
       throw new Error(`Invalid PDF header: ${header}`);
     }
-    const pdfDir = path2.resolve(process.cwd(), "dist", "public", "exports", "pdf");
+    const pdfDir = path2.resolve(process.cwd(), "storage", "exports", "pdf");
     if (!fs2.existsSync(pdfDir)) {
       fs2.mkdirSync(pdfDir, { recursive: true });
     }
@@ -6149,6 +6155,10 @@ function registerExportRoutes(app) {
         res.status(403).json({ error: "Access denied" });
         return;
       }
+      if (report.status && report.status !== "completed") {
+        res.status(409).json({ error: "\u62A5\u544A\u5C1A\u672A\u5206\u6790\u5B8C\u6210\uFF0C\u8BF7\u7B49\u5206\u6790\u5B8C\u6210\u540E\u518D\u5BFC\u51FA PDF" });
+        return;
+      }
       const pdfStatus = report.pdfStatus || "idle";
       const pdfUrl = report.pdfUrl;
       if (!force && pdfStatus === "ready" && pdfUrl) {
@@ -6156,8 +6166,13 @@ function registerExportRoutes(app) {
         return;
       }
       if (!force && pdfStatus === "generating") {
-        res.json({ status: "generating", message: "PDF\u6B63\u5728\u751F\u6210\u4E2D\uFF0C\u8BF7\u7A0D\u5019..." });
-        return;
+        const updatedAt = report.updatedAt ? new Date(report.updatedAt).getTime() : 0;
+        const stuckMs = Date.now() - updatedAt;
+        if (updatedAt > 0 && stuckMs < 6 * 60 * 1e3) {
+          res.json({ status: "generating", message: "PDF\u6B63\u5728\u751F\u6210\u4E2D\uFF0C\u8BF7\u7A0D\u5019..." });
+          return;
+        }
+        console.warn(`[PDF Export] \u68C0\u6D4B\u5230 ${reportId} \u72B6\u6001\u50F5\u6B7B\u5728 generating \u8D85\u8FC7 6 \u5206\u949F\uFF0C\u5F3A\u5236\u91CD\u542F\u4EFB\u52A1`);
       }
       const serverPort = (req.socket.localPort || process.env.PORT || 3e3).toString();
       generatePdfInBackground(reportId, serverPort);
@@ -6532,6 +6547,8 @@ function serveStatic(app) {
     );
   }
   app.use(express.static(distPath));
+  const exportsPath = path3.resolve(process.cwd(), "storage", "exports");
+  app.use("/exports", express.static(exportsPath));
   app.use("*", (_req, res) => {
     res.sendFile(path3.resolve(distPath, "index.html"));
   });
@@ -6574,6 +6591,9 @@ async function startServer() {
     })
   );
   if (process.env.NODE_ENV === "development") {
+    const expressMod = (await import("express")).default;
+    const pathMod = (await import("path")).default;
+    app.use("/exports", expressMod.static(pathMod.resolve(process.cwd(), "storage", "exports")));
     const { setupVite } = await import("./vite");
     await setupVite(app, server);
   } else {

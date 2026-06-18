@@ -20,6 +20,10 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
+  // [修复] PDF 导出文件存于持久化目录 storage/exports（不被 build 清空），单独挂载路由
+  const exportsPath = path.resolve(process.cwd(), "storage", "exports");
+  app.use("/exports", express.static(exportsPath));
+
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
