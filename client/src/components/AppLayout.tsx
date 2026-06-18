@@ -232,6 +232,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
                   </span>
                 </div>
               )}
+              {/* [定制] 公司 logo：原色不变，加浅色圆角底衡以融入深色侧边栏 */}
+              {!sidebarCollapsed && (
+                <div className="ml-auto shrink-0 rounded-md bg-white/90 px-1.5 py-1 flex items-center">
+                  <img src="/bestqi-logo.png" alt="BestQI" className="h-4 w-auto" />
+                </div>
+              )}
             </div>
           </div>
           <nav className="px-3 pt-2 space-y-5">

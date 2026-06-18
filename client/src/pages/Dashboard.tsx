@@ -21,10 +21,18 @@ export default function Dashboard() {
   const [filterDept, setFilterDept] = useState("all");
   const [selectedReports, setSelectedReports] = useState<string[]>([]);
 
+  const utils = trpc.useUtils();
   const { data: reportsList, isLoading } = trpc.report.list.useQuery();
   const { data: stats } = trpc.user.stats.useQuery();
   const deleteReport = trpc.report.delete.useMutation({
-    onSuccess: () => { toast.success("报告已删除"); },
+    onSuccess: () => {
+      toast.success("报告已删除");
+      // [修复] 删除后刷新报告列表与统计数据
+      utils.report.list.invalidate();
+      utils.user.stats.invalidate();
+      setSelectedReports([]);
+    },
+    onError: (e: any) => { toast.error(`删除失败: ${e?.message || "未知错误"}`); },
   });
   const generateShareLink = trpc.report.generateShareLink.useMutation();
 
