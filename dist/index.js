@@ -5912,6 +5912,15 @@ async function generatePdfCore(reportId, serverPort) {
     const result = await db.select().from(reports).where(eq9(reports.reportId, reportId)).limit(1);
     if (result.length === 0) throw new Error("Report not found");
     const report = result[0];
+    let brandLogoUrl = null;
+    try {
+      if (report.userId) {
+        const brandRows = await db.select().from(brandSettings).where(eq9(brandSettings.userId, report.userId)).limit(1);
+        if (brandRows.length > 0 && brandRows[0].logoUrl) brandLogoUrl = brandRows[0].logoUrl;
+      }
+    } catch (e) {
+      console.warn(`[PDF Export] \u67E5\u8BE2\u54C1\u724C Logo \u5931\u8D25\uFF08\u5FFD\u7565\uFF09: ${e?.message || e}`);
+    }
     let accessToken = report.shareToken;
     if (!accessToken) {
       const { nanoid: nanoid4 } = await import("nanoid");
@@ -6158,6 +6167,34 @@ async function generatePdfCore(reportId, serverPort) {
       `;
       document.head.appendChild(style);
     });
+    if (brandLogoUrl) {
+      console.log(`[PDF Export] Injecting brand logo...`);
+      await page.evaluate((logoUrl) => {
+        if (document.querySelector(".print-brand-header")) return;
+        const main = document.querySelector("main");
+        const titleBlock = main?.querySelector(".mb-8");
+        if (!main || !titleBlock) return;
+        const wrapper = document.createElement("div");
+        wrapper.className = "print-brand-header";
+        wrapper.style.cssText = "display:block;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e5e7eb;";
+        const img = document.createElement("img");
+        img.src = logoUrl;
+        img.setAttribute("crossorigin", "anonymous");
+        img.style.cssText = "max-height:48px;max-width:240px;object-fit:contain;display:block;";
+        wrapper.appendChild(img);
+        titleBlock.insertBefore(wrapper, titleBlock.firstChild);
+      }, brandLogoUrl);
+      await page.evaluate(async () => {
+        const img = document.querySelector(".print-brand-header img");
+        if (img && !img.complete) {
+          await new Promise((resolve) => {
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            setTimeout(() => resolve(), 8e3);
+          });
+        }
+      });
+    }
     console.log(`[PDF Export] Waiting for charts...`);
     await new Promise((r) => setTimeout(r, 4e3));
     console.log(`[PDF Export] Scrolling to load all content...`);

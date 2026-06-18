@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "./db";
-import { reports, reportDistributions } from "../drizzle/schema";
+import { reports, reportDistributions, brandSettings } from "../drizzle/schema";
 import { eq, or, inArray } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { authenticateAdmin } from "./_core/adminIdentity";
@@ -126,6 +126,17 @@ async function generatePdfCore(reportId: string, serverPort: string) {
     const result = await db.select().from(reports).where(eq(reports.reportId, reportId)).limit(1);
     if (result.length === 0) throw new Error("Report not found");
     const report = result[0];
+
+    // [新增] 查询报告所有者的企业品牌 Logo（导出页以 token 模式打开，前端不会拉 brand.get，需服务端注入）
+    let brandLogoUrl: string | null = null;
+    try {
+      if (report.userId) {
+        const brandRows = await db.select().from(brandSettings).where(eq(brandSettings.userId, report.userId)).limit(1);
+        if (brandRows.length > 0 && brandRows[0].logoUrl) brandLogoUrl = brandRows[0].logoUrl;
+      }
+    } catch (e: any) {
+      console.warn(`[PDF Export] 查询品牌 Logo 失败（忽略）: ${e?.message || e}`);
+    }
 
     // 确保有 shareToken
     let accessToken = report.shareToken;
@@ -386,6 +397,38 @@ async function generatePdfCore(reportId: string, serverPort: string) {
       `;
       document.head.appendChild(style);
     });
+
+    // [新增] 注入企业品牌 Logo 到报告头部（前端 token 模式下不会拉 brand.get，故由服务端注入）
+    if (brandLogoUrl) {
+      console.log(`[PDF Export] Injecting brand logo...`);
+      await page.evaluate((logoUrl: string) => {
+        // 若页面已存在品牌头部则跳过
+        if (document.querySelector('.print-brand-header')) return;
+        const main = document.querySelector('main');
+        const titleBlock = main?.querySelector('.mb-8');
+        if (!main || !titleBlock) return;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'print-brand-header';
+        wrapper.style.cssText = 'display:block;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e5e7eb;';
+        const img = document.createElement('img');
+        img.src = logoUrl;
+        img.setAttribute('crossorigin', 'anonymous');
+        img.style.cssText = 'max-height:48px;max-width:240px;object-fit:contain;display:block;';
+        wrapper.appendChild(img);
+        titleBlock.insertBefore(wrapper, titleBlock.firstChild);
+      }, brandLogoUrl);
+      // 等待 Logo 图片加载完成，避免 PDF 渲染时图片空白
+      await page.evaluate(async () => {
+        const img = document.querySelector('.print-brand-header img') as HTMLImageElement | null;
+        if (img && !img.complete) {
+          await new Promise<void>((resolve) => {
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            setTimeout(() => resolve(), 8000);
+          });
+        }
+      });
+    }
 
     // 等待图表渲染（图表需要时间重绘）
     console.log(`[PDF Export] Waiting for charts...`);

@@ -573,6 +573,35 @@
     font-size: 11px;
     color: #666;
   }
+
+  /* Brand header: show enterprise logo at top of report in print/PDF */
+  .print-brand-header {
+    display: block !important;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .print-brand-header img {
+    max-height: 48px;
+    max-width: 240px;
+    object-fit: contain;
+  }
+}
+
+/* Brand header hidden on screen; only visible when printing/exporting */
+.print-brand-header {
+  display: none;
+}
+.print-mode .print-brand-header {
+  display: block !important;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.print-mode .print-brand-header img {
+  max-height: 48px;
+  max-width: 240px;
+  object-fit: contain;
 }
 
 /* Print mode class - applied by Puppeteer PDF export */

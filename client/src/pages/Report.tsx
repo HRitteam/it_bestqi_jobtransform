@@ -1282,6 +1282,12 @@ export default function ReportPage() {
 
       <main className="flex-1 p-4 md:p-8 max-w-5xl">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={springPresets.gentle} className="mb-8">
+          {/* [新增] 仅打印/导出 PDF 时显示的企业品牌头部（含 Logo），屏幕上隐藏 */}
+          {brandData?.logoUrl && (
+            <div className="print-brand-header">
+              <img src={brandData.logoUrl} alt="" crossOrigin="anonymous" />
+            </div>
+          )}
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl text-metallic">{report.jobTitle ? `${report.jobTitle}AI转型分析报告` : "AI转型分析报告"}</h1>
