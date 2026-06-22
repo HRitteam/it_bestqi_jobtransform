@@ -204,9 +204,56 @@ export default function BatchPage() {
     setIsDragging(false);
   }, []);
 
+  // [修复] 递归读取拖入的文件夹：浏览器默认不会展开文件夹内的文件，
+  // 需通过 webkitGetAsEntry 递归遍历目录。返回所有叶子文件。
+  const readEntryRecursively = (entry: any): Promise<File[]> => {
+    return new Promise((resolve) => {
+      if (!entry) return resolve([]);
+      if (entry.isFile) {
+        entry.file((file: File) => resolve([file]), () => resolve([]));
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const all: File[] = [];
+        const readBatch = () => {
+          reader.readEntries(async (entries: any[]) => {
+            if (!entries.length) return resolve(all);
+            // 跳过 macOS 资源叉和隐藏文件
+            const visible = entries.filter((en) => !en.name.startsWith(".") && en.name !== "__MACOSX");
+            const results = await Promise.all(visible.map((en) => readEntryRecursively(en)));
+            results.forEach((r) => all.push(...r));
+            readBatch(); // readEntries 可能分批返回，需循环读完
+          }, () => resolve(all));
+        };
+        readBatch();
+      } else {
+        resolve([]);
+      }
+    });
+  };
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    const items = e.dataTransfer.items;
+    // 优先走目录递归路径（支持拖文件夹）
+    if (items && items.length > 0 && typeof (items[0] as any).webkitGetAsEntry === "function") {
+      const entries = Array.from(items)
+        .map((it) => (it as any).webkitGetAsEntry?.())
+        .filter(Boolean);
+      const hasDir = entries.some((en: any) => en && en.isDirectory);
+      if (hasDir) {
+        (async () => {
+          const fileArrays = await Promise.all(entries.map((en: any) => readEntryRecursively(en)));
+          const allFiles = fileArrays.flat();
+          if (allFiles.length === 0) {
+            toast.warning("文件夹中未找到文件", { description: "请确认文件夹内含 .txt .doc .docx .pdf 等文件" });
+            return;
+          }
+          processFiles(allFiles);
+        })();
+        return;
+      }
+    }
     const droppedFiles = Array.from(e.dataTransfer.files);
     processFiles(droppedFiles);
   }, []);
@@ -325,6 +372,66 @@ export default function BatchPage() {
     return results;
   };
 
+  // [修复] 按内容魔数探测是否为 ZIP（PK\x03\x04 / PK\x05\x06 / PK\x07\x08），
+  // 避免 zip 文件名缺少 .zip 扩展名（如 converted_files_bundle）时被误当成单文件处理。
+  const isZipByMagic = async (file: File): Promise<boolean> => {
+    try {
+      const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+      return head[0] === 0x50 && head[1] === 0x4b &&
+        (head[2] === 0x03 || head[2] === 0x05 || head[2] === 0x07);
+    } catch {
+      return false;
+    }
+  };
+
+  // [修复] 抽出 ZIP 解包逻辑为独立函数，供按扩展名和按魔数两条路径复用。返回新增岗位数。
+  const extractZipJobs = async (f: File): Promise<number> => {
+    let added = 0;
+    try {
+      const zipData = await f.arrayBuffer();
+      const zip = await JSZip.loadAsync(zipData);
+      const supportedExts = ["txt", "doc", "docx", "pdf"];
+      const subFiles: { name: string; file: File }[] = [];
+      for (const [path, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        if (path.startsWith("__MACOSX/") || path.startsWith(".")) continue;
+        const fileName = path.split("/").pop() || path;
+        if (fileName.startsWith(".")) continue;
+        const fileExt = fileName.toLowerCase().split(".").pop() || "";
+        if (!supportedExts.includes(fileExt)) continue;
+        const blob = await entry.async("blob");
+        const mimeMap: Record<string, string> = {
+          txt: "text/plain",
+          doc: "application/msword",
+          docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          pdf: "application/pdf",
+        };
+        const subFile = new File([blob], fileName, { type: mimeMap[fileExt] || "application/octet-stream" });
+        subFiles.push({ name: fileName, file: subFile });
+      }
+      if (subFiles.length === 0) {
+        toast.warning(`${f.name} 中未找到支持的文件`, { description: "支持 .txt .doc .docx .pdf 格式" });
+        return 0;
+      }
+      for (const sub of subFiles) {
+        const id = crypto.randomUUID().slice(0, 8);
+        uploadedFilesRef.current.set(id, sub.file);
+        const job: BatchJob = {
+          id,
+          jobTitle: sub.name.replace(/\.[^.]+$/, ""),
+          department: departmentName || "未指定部门",
+          status: "pending" as const,
+        };
+        setJobs(prev => [...prev, job]);
+        added++;
+      }
+    } catch (zipErr) {
+      console.error("ZIP extraction failed:", zipErr);
+      toast.error(`${f.name} 解压失败`, { description: "请检查文件是否损坏" });
+    }
+    return added;
+  };
+
   const processFiles = async (fileList: File[]) => {
     let addedCount = 0;
     for (const f of fileList) {
@@ -348,51 +455,10 @@ export default function BatchPage() {
         });
         setJobs(prev => [...prev, ...parsedJobs]);
         addedCount += parsedJobs.length;
-      } else if (ext.endsWith(".zip")) {
+      } else if (ext.endsWith(".zip") || (await isZipByMagic(f))) {
         // ZIP file: extract sub-files in browser and add each as independent job
-        try {
-          const zipData = await f.arrayBuffer();
-          const zip = await JSZip.loadAsync(zipData);
-          const supportedExts = ["txt", "doc", "docx", "pdf"];
-          const subFiles: { name: string; file: File }[] = [];
-          for (const [path, entry] of Object.entries(zip.files)) {
-            if (entry.dir) continue;
-            // Skip macOS resource fork and hidden files
-            if (path.startsWith("__MACOSX/") || path.startsWith(".")) continue;
-            const fileName = path.split("/").pop() || path;
-            if (fileName.startsWith(".")) continue;
-            const fileExt = fileName.toLowerCase().split(".").pop() || "";
-            if (!supportedExts.includes(fileExt)) continue;
-            const blob = await entry.async("blob");
-            const mimeMap: Record<string, string> = {
-              txt: "text/plain",
-              doc: "application/msword",
-              docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-              pdf: "application/pdf",
-            };
-            const subFile = new File([blob], fileName, { type: mimeMap[fileExt] || "application/octet-stream" });
-            subFiles.push({ name: fileName, file: subFile });
-          }
-          if (subFiles.length === 0) {
-            toast.warning(`${f.name} 中未找到支持的文件`, { description: "支持 .txt .doc .docx .pdf 格式" });
-            continue;
-          }
-          for (const sub of subFiles) {
-            const id = crypto.randomUUID().slice(0, 8);
-            uploadedFilesRef.current.set(id, sub.file);
-            const job: BatchJob = {
-              id,
-              jobTitle: sub.name.replace(/\.[^.]+$/, ""),
-              department: departmentName || "未指定部门",
-              status: "pending" as const,
-            };
-            setJobs(prev => [...prev, job]);
-            addedCount++;
-          }
-        } catch (zipErr) {
-          console.error("ZIP extraction failed:", zipErr);
-          toast.error(`${f.name} 解压失败`, { description: "请检查文件是否损坏" });
-        }
+        // [修复] 同时兼容无 .zip 扩展名但内容为 ZIP 的文件（如 converted_files_bundle）。
+        addedCount += await extractZipJobs(f);
       } else {
         // Non-tabular files (doc/pdf/txt): treat each file as one job
         const id = crypto.randomUUID().slice(0, 8);
