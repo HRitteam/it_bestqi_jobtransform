@@ -588,6 +588,21 @@
   }
 }
 
+/* Date input: make the native calendar picker icon visible on dark backgrounds.
+   Default WebKit indicator is near-black and invisible on dark themes. */
+.dark .date-input-light::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.6);
+  opacity: 0.85;
+  cursor: pointer;
+}
+.date-input-light::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+/* In print/PDF (forced light theme) keep the indicator dark for contrast on white */
+.print-mode .date-input-light::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+
 /* Brand header hidden on screen; only visible when printing/exporting */
 .print-brand-header {
   display: none;

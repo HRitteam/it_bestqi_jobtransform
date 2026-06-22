@@ -54,6 +54,19 @@ export default function VirtualTable<T extends Record<string, any>>({
   const visibleData = data.slice(startIndex, endIndex);
   const offsetY = isPrintMode ? 0 : startIndex * rowHeight;
 
+  // [修复] 打印态列宽锁死：用 flexBasis + flexShrink:0 让表头与数据行用完全一致的宽度计算，
+  // 消除 flex 收缩/四舍五入造成的表头-数据列错位（导出 PDF 表格变形）。
+  const colStyle = (width?: string): React.CSSProperties => {
+    if (width) {
+      return isPrintMode
+        ? { flex: "none", flexBasis: width, flexGrow: 0, flexShrink: 0, width, minWidth: 0 }
+        : { width, flex: "none" };
+    }
+    return isPrintMode
+      ? { flex: "1 1 0", flexShrink: 0, minWidth: 0 }
+      : { flex: 1, width: "auto" };
+  };
+
   const handleScroll = useCallback(() => {
     if (containerRef.current) {
       setScrollTop(containerRef.current.scrollTop);
@@ -88,8 +101,8 @@ export default function VirtualTable<T extends Record<string, any>>({
         {columns.map(col => (
           <div
             key={col.key}
-            className={`px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider ${isPrintMode ? "whitespace-nowrap" : ""}`}
-            style={{ width: col.width || "auto", flex: col.width ? "none" : 1 }}
+            className={`px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider`}
+            style={colStyle(col.width)}
           >
             {col.title}
           </div>
@@ -140,8 +153,8 @@ export default function VirtualTable<T extends Record<string, any>>({
                       return (
                         <div
                           key={col.key}
-                          className="px-3 py-2 text-sm text-foreground"
-                          style={{ width: col.width || "auto", flex: col.width ? "none" : 1 }}
+                          className={`px-3 py-2 text-sm text-foreground ${isPrintMode ? "break-words" : ""}`}
+                          style={colStyle(col.width)}
                           title={titleStr}
                         >
                           {cellValue}

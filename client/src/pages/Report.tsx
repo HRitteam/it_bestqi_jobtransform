@@ -817,7 +817,7 @@ function EfficiencyDashboard({ currentTasks, newTasks }: { currentTasks: any[]; 
                 value={customRange.start}
                 max={customRange.end || undefined}
                 onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))}
-                className="text-xs bg-muted border border-white/[0.06] rounded-md px-2 py-1 text-foreground"
+                className="date-input-light text-xs bg-muted border border-white/[0.06] rounded-md px-2 py-1 text-foreground"
               />
             </div>
             <div className="flex items-center gap-1.5">
@@ -827,7 +827,7 @@ function EfficiencyDashboard({ currentTasks, newTasks }: { currentTasks: any[]; 
                 value={customRange.end}
                 min={customRange.start || undefined}
                 onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))}
-                className="text-xs bg-muted border border-white/[0.06] rounded-md px-2 py-1 text-foreground"
+                className="date-input-light text-xs bg-muted border border-white/[0.06] rounded-md px-2 py-1 text-foreground"
               />
             </div>
             {customRange.start && customRange.end ? (
