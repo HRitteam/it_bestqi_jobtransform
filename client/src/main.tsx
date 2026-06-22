@@ -1,3 +1,6 @@
+// [修复] 必须位于所有业务 import 之前：ES 模块按 import 顺序求值，
+// 本模块加载时会立即安装存储守卫，确保后续任何模块读取 localStorage 前已生效。
+import { installStorageGuard } from "./lib/safeStorage";
 import { trpc } from "@/lib/trpc";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,6 +12,9 @@ import { getLoginUrl } from "./const";
 import { getIframeHeaders, isIframeMode } from "./lib/iframeContext";
 import { installFetchInterceptor } from "./lib/fetchInterceptor";
 import "./index.css";
+
+// [修复] 再次显式调用以保险（幂等）：确保即使 tree-shaking 也保留守卫安装。
+installStorageGuard();
 
 // 安装全局 fetch 拦截器，确保所有 API 请求自动携带 iframe 身份 Header
 installFetchInterceptor();
