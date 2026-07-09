@@ -235,7 +235,8 @@ var init_env = __esm({
       isProduction: process.env.NODE_ENV === "production",
       forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
       forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
-      adminPassword: process.env.ADMIN_PASSWORD ?? ""
+      adminPassword: process.env.ADMIN_PASSWORD ?? "",
+      sitePassword: process.env.SITE_PASSWORD ?? ""
     };
   }
 });
@@ -7122,6 +7123,24 @@ function registerStorageProxy(app) {
   });
 }
 
+// server/siteAuthRoute.ts
+init_env();
+function registerSiteAuthRoute(app) {
+  app.post("/api/site/verify", (req, res) => {
+    const { password } = req.body;
+    if (!password || typeof password !== "string") {
+      return res.status(400).json({ success: false, message: "Password is required" });
+    }
+    if (!ENV.sitePassword) {
+      return res.status(500).json({ success: false, message: "Site password is not configured" });
+    }
+    if (password === ENV.sitePassword) {
+      return res.json({ success: true });
+    }
+    return res.status(401).json({ success: false, message: "Invalid password" });
+  });
+}
+
 // server/_core/context.ts
 async function createContext(opts) {
   let user = null;
@@ -7194,6 +7213,7 @@ async function startServer() {
   app.use(express2.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerSiteAuthRoute(app);
   registerAdminAuthRoute(app);
   registerApiRoutes(app);
   registerExportRoutes(app);

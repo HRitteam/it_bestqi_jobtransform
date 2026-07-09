@@ -1,21 +1,18 @@
 /**
- * [定制] 全局进站密码门
+ * 全局进站密码门禁。
  *
- * 打开网站任何页面都需要先输入进站密码（bestqi）才能访问整站。
- * 验证通过后在当前浏览器会话（sessionStorage）内保持，无需每页重复输入。
+ * 打开网站任何页面都需要先输入进站密码才能访问整站。密码由后端
+ * SITE_PASSWORD 环境变量控制，前端不再硬编码真实密码。
  *
  * 说明：
- * - 这是"第一级"密码（所有访客通用），仅用于前端访问控制。
- * - "第二级"管理员密码（bestqiai2026）由 adminAuth 单独控制，
- *   用于决定是否显示"模型管理 / 调用日志"等管理员入口。
- * - 分享链接（/share/:token 或带 ?token= 的报告页）允许免密直达，
- *   以便外部接收分享的人可以直接查看报告。
+ * - 这是第一级密码，所有访客通用，仅用于前端访问控制。
+ * - 第二级管理员密码由 ADMIN_PASSWORD 单独控制，用于模型管理/调用日志等后台入口。
+ * - 分享链接（/share/:token 或带 ?token= 的报告页）允许免密直达查看报告。
  */
 import { useState, useCallback, useEffect } from "react";
 import { Lock } from "lucide-react";
 
 const SITE_SESSION_KEY = "site_authenticated";
-const SITE_PASSWORD = "bestqi";
 
 /** 是否已通过进站密码 */
 export function isSiteUnlocked(): boolean {
@@ -47,28 +44,53 @@ export default function SiteGate({ children }: SiteGateProps) {
   const [unlocked, setUnlocked] = useState(isSiteUnlocked() || isShareEntry());
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // 分享链接进入时直接放行，并标记会话已解锁（便于后续浏览）
+  // 分享链接进入时直接放行，并标记会话已解锁，便于后续浏览。
   useEffect(() => {
     if (isShareEntry() && !isSiteUnlocked()) {
-      try { sessionStorage.setItem(SITE_SESSION_KEY, "true"); } catch {}
+      try {
+        sessionStorage.setItem(SITE_SESSION_KEY, "true");
+      } catch {}
       setUnlocked(true);
     }
   }, []);
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (!password.trim()) {
       setError("请输入访问密码");
       return;
     }
-    if (password === SITE_PASSWORD) {
-      try { sessionStorage.setItem(SITE_SESSION_KEY, "true"); } catch {}
-      setUnlocked(true);
-      setPassword("");
-      setError("");
-      return;
+
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/site/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.success) {
+          try {
+            sessionStorage.setItem(SITE_SESSION_KEY, "true");
+          } catch {}
+          setUnlocked(true);
+          setPassword("");
+          setError("");
+          return;
+        }
+      }
+
+      setError("密码错误，请重试");
+    } catch {
+      setError("网络错误，请稍后重试");
+    } finally {
+      setLoading(false);
     }
-    setError("密码错误，请重试");
   }, [password]);
 
   if (unlocked) {
@@ -91,7 +113,9 @@ export default function SiteGate({ children }: SiteGateProps) {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSubmit();
+          }}
           placeholder="请输入访问密码"
           className="w-full px-4 py-3 rounded-lg bg-card border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
           autoFocus
@@ -101,9 +125,10 @@ export default function SiteGate({ children }: SiteGateProps) {
         )}
         <button
           onClick={handleSubmit}
-          className="w-full px-4 py-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-colors"
+          disabled={loading}
+          className="w-full px-4 py-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-colors disabled:opacity-50"
         >
-          进入平台
+          {loading ? "验证中..." : "进入平台"}
         </button>
       </div>
     </div>

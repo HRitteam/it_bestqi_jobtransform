@@ -11,6 +11,7 @@ import { registerApiRoutes } from "../apiRoutes";
 import { registerExportRoutes } from "../exportRoutes";
 import { registerStorageProxy } from "./storageProxy";
 import { registerAdminAuthRoute } from "../adminAuthRoute";
+import { registerSiteAuthRoute } from "../siteAuthRoute";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./serveStatic";
@@ -46,6 +47,7 @@ async function startServer() {
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerSiteAuthRoute(app);
   registerAdminAuthRoute(app);
   registerApiRoutes(app);
   registerExportRoutes(app);
