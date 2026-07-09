@@ -60,6 +60,11 @@ export function repairJson(input: string): string {
   s = s.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
   // 去除 // 行注释和 /* */ 块注释（保守处理，避免误伤字符串内容）
   s = s.replace(/^\s*\/\/.*$/gm, "");
+  // Fix common LLM JSON slips: unquoted keys and missing commas between fields/items.
+  s = s.replace(/([{,]\s*)([A-Za-z_\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)(\s*:)/g, '$1"$2"$3');
+  s = s
+    .replace(/(["}\]\d])\s+("[A-Za-z_\u4e00-\u9fa5][^"\n\r]{0,80}"\s*:)/g, "$1,$2")
+    .replace(/([}\]])\s+([{[])/g, "$1,$2");
   // 去除对象/数组中的尾随逗号： ,} 或 ,]
   s = s.replace(/,\s*([}\]])/g, "$1");
 

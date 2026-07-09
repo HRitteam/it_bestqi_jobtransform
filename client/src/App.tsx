@@ -9,7 +9,7 @@ import SiteGate from "./components/SiteGate";
 import AdminGuard from "./components/AdminGuard";
 import Home from "./pages/Home";
 import { lazy, Suspense } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 
 const AnalysisPage = lazy(() => import("./pages/Analysis"));
 const ReportPage = lazy(() => import("./pages/Report"));
@@ -41,7 +41,6 @@ function AnimatedPage({ children }: { children: React.ReactNode }) {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
     >
       {children}
@@ -55,7 +54,6 @@ function Router() {
   return (
     <AppLayout>
       <Suspense fallback={<PageLoader />}>
-        <AnimatePresence mode="wait">
           <AnimatedPage key={location}>
             <Switch location={location}>
               {/* ===== 普通用户可访问页面（无需密码）===== */}
@@ -89,7 +87,6 @@ function Router() {
               <Route component={NotFound} />
             </Switch>
           </AnimatedPage>
-        </AnimatePresence>
       </Suspense>
     </AppLayout>
   );

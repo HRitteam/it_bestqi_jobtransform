@@ -280,7 +280,11 @@ export default function LlmManager() {
               {models.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                    暂无模型配置，请点击"新增模型"添加
+                    {modelsQuery.isLoading
+                      ? "模型配置加载中..."
+                      : modelsQuery.error
+                        ? `模型配置加载失败：${modelsQuery.error.message}`
+                        : "暂无模型配置，请点击\"新增模型\"添加"}
                   </TableCell>
                 </TableRow>
               ) : (

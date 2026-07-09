@@ -177,7 +177,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           {/* Brand - simplified in top bar since logo is in sidebar */}
           <div className="flex items-center gap-2.5">
             <span className="font-display font-semibold text-base tracking-tight hidden sm:inline">
-              Job AITrans
+              包道
             </span>
           </div>
           <div className="flex-1" />
@@ -236,12 +236,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <div className="flex items-center gap-3">
               {/* [定制] 品牌图标替换为公司 logo：原色不变，加浅色圆角底衬以融入深色侧边栏 */}
               <div className="w-9 h-9 rounded-xl bg-white/90 flex items-center justify-center shrink-0 px-1">
-                <img src="/bestqi-logo.png" alt="BestQI" className="w-full h-auto object-contain" />
+                <img
+                  src="https://hrflagfile.oss-cn-hangzhou.aliyuncs.com/AIGCImg/%E4%B8%8B%E8%BD%BD.png"
+                  alt="包道"
+                  className="w-full h-auto object-contain"
+                />
               </div>
               {!sidebarCollapsed && (
                 <div className="flex flex-col min-w-0">
                   <span className="text-[15px] font-display font-bold text-foreground leading-tight tracking-tight">
-                    Job AITrans
+                    包道
                   </span>
                   <span className="text-[11px] text-primary/80 leading-tight">
                     岗位/职能AI转型分析平台

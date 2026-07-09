@@ -11,6 +11,7 @@ import {
   X,
   AlertTriangle,
   CheckSquare,
+  Loader2,
 } from "lucide-react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
@@ -24,7 +25,6 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 
-import { GuidedTour } from "@/components/GuidedTour";
 import { apiFetch } from "@/lib/apiFetch";
 import { isReadOnlyShareGuest } from "@/lib/shareGuest";
 
@@ -459,11 +459,10 @@ export default function Home() {
                 disabled={shareGuest || isSubmitting || (!inputText.trim() && files.length === 0) || (quota !== null && !quota.unlimited && quota.remaining <= 0)}
                 className="gap-2"
               >
-                {isSubmitting ? (
-                  <div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Sparkles className="w-4 h-4" />
-                )}
+                <span className="relative inline-flex h-4 w-4 items-center justify-center">
+                  <Sparkles className={`absolute h-4 w-4 transition-opacity ${isSubmitting ? "opacity-0" : "opacity-100"}`} />
+                  <Loader2 className={`absolute h-4 w-4 animate-spin transition-opacity ${isSubmitting ? "opacity-100" : "opacity-0"}`} />
+                </span>
                 {shareGuest ? "仅可查看分享报告" : (quota && !quota.unlimited && quota.remaining <= 0 ? "今日已达上限" : "开始分析")}
               </Button>
             </div>
@@ -517,9 +516,6 @@ export default function Home() {
           </div>
         </motion.div>
       </div>
-
-      {/* Guided Tour */}
-      <GuidedTour />
 
       {/* ZIP File Selection Dialog */}
       <Dialog open={showFileSelect} onOpenChange={setShowFileSelect}>

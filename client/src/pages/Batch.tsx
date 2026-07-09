@@ -656,6 +656,7 @@ export default function BatchPage() {
                 // Poll for completion
                 let completed = false;
                 let attempts = 0;
+                let failedMessage = "";
                 while (!completed && attempts < 120) {
                   await new Promise(r => setTimeout(r, 3000));
                   attempts++;
@@ -667,8 +668,18 @@ export default function BatchPage() {
                     if (statusRes.ok) {
                       const reportData = await statusRes.json();
                       if (reportData?.status === "completed") completed = true;
+                      if (reportData?.status === "error") {
+                        failedMessage = "报告生成失败，请查看调用日志";
+                        break;
+                      }
                     }
                   } catch { /* continue polling */ }
+                }
+                if (failedMessage) {
+                  throw new Error(failedMessage);
+                }
+                if (!completed) {
+                  throw new Error("分析超时，请稍后在历史记录中查看或重试");
                 }
                 setJobs(prev => prev.map(j =>
                   j.id === subJob.id ? { ...j, status: "completed", progress: 100 } : j
@@ -723,6 +734,7 @@ export default function BatchPage() {
           // Wait for analysis to complete (poll status)
           let completed = false;
           let attempts = 0;
+          let failedMessage = "";
           while (!completed && attempts < 120) {
             await new Promise(r => setTimeout(r, 3000));
             attempts++;
@@ -737,8 +749,19 @@ export default function BatchPage() {
                 if (reportData?.status === "completed") {
                   completed = true;
                 }
+                if (reportData?.status === "error") {
+                  failedMessage = "报告生成失败，请查看调用日志";
+                  break;
+                }
               }
             } catch { /* continue polling */ }
+          }
+
+          if (failedMessage) {
+            throw new Error(failedMessage);
+          }
+          if (!completed) {
+            throw new Error("分析超时，请稍后在历史记录中查看或重试");
           }
 
           setJobs(prev => prev.map(j =>

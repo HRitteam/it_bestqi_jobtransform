@@ -1013,7 +1013,14 @@ async function invokeAndParseStep(
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt + schemaInstruction },
       ],
-      response_format: { type: "json_object" },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: step.schema.name,
+          schema: step.schema.schema,
+          strict: true,
+        },
+      },
     }, ctx);
 
     const content = response.choices[0]?.message?.content;

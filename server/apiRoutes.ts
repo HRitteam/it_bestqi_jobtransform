@@ -51,6 +51,62 @@ const DAILY_ANALYSIS_LIMIT = 10;
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 单文件上限 50MB
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
 
+interface FileItem {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
+
+interface ExtractedJobSection {
+  originalname: string;
+  extractedText: string;
+}
+
+function getFileStem(filename: string) {
+  return filename.replace(/\.[^.]+$/, "");
+}
+
+function getFileExt(filename: string) {
+  const match = filename.match(/\.([^.]+)$/);
+  return match ? match[1] : "txt";
+}
+
+function sanitizeFilenamePart(value: string) {
+  return value
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/\s+/g, "")
+    .trim()
+    .slice(0, 40);
+}
+
+function splitExtractedJobSections(extracted: string, filename: string): ExtractedJobSection[] {
+  const text = extracted.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const titleMatches = Array.from(text.matchAll(/^(.{2,60}?岗位说明书)\s*$/gm))
+    .filter((match) => {
+      const title = (match[1] || "").replace(/\s+/g, "");
+      return title !== "岗位说明书" && title.length > "岗位说明书".length;
+    });
+
+  if (titleMatches.length <= 1) {
+    return [{ originalname: filename, extractedText: extracted }];
+  }
+
+  const stem = getFileStem(filename);
+  const ext = getFileExt(filename);
+  return titleMatches.map((match, index) => {
+    const title = (match[1] || `岗位${index + 1}`).replace(/\s+/g, "").replace(/岗位说明书$/, "");
+    const start = match.index ?? 0;
+    const end = titleMatches[index + 1]?.index ?? text.length;
+    const sectionText = text.slice(start, end).trim();
+    const sectionName = `${stem}-${index + 1}-${sanitizeFilenamePart(title) || "岗位"}.${ext}`;
+    return {
+      originalname: sectionName,
+      extractedText: sectionText || extracted,
+    };
+  });
+}
+
 // In-memory SSE connections map
 const sseConnections = new Map<string, Response[]>();
 
@@ -201,12 +257,6 @@ export function registerApiRoutes(app: Router) {
       } else {
         // File mode: one report per file (ZIP files are expanded into individual sub-files)
         // First, expand the file list: ZIP files become their contained sub-files
-        interface FileItem {
-          buffer: Buffer;
-          originalname: string;
-          mimetype: string;
-          size: number;
-        }
         const expandedFiles: FileItem[] = [];
 
         for (const file of uploadedFiles) {
@@ -322,77 +372,91 @@ export function registerApiRoutes(app: Router) {
           return;
         }
 
-        // Now process each expanded file as one report
+        // Now process each expanded file. A single PDF may contain multiple job descriptions,
+        // so extracted text can fan out into multiple report records.
         for (const file of expandedFiles) {
-          const reportId = nanoid(12);
           try {
             // Step 1: Extract text locally FIRST (this is the critical step)
             console.log(`[Submit] Extracting text from file: ${file.originalname}, mime: ${file.mimetype}, size: ${file.buffer?.length || 0}`);
             const extracted = await extractTextFromBuffer(file.buffer, file.originalname, file.mimetype);
             console.log(`[Submit] Extracted text length: ${extracted?.length || 0}, preview: ${extracted?.slice(0, 200) || '(empty)'}`);
 
-            // Step 2: Try to upload to S3 (non-critical, don't fail if storage is unavailable)
-            let fileKey = "";
-            let fileUrl = "";
-            try {
-              const pathPrefix = companyId ? `${companyId}/${user.id}` : `${user.id}`;
-              fileKey = `${pathPrefix}/uploads/${reportId}/${file.originalname}`;
-              const { url } = await storagePut(fileKey, file.buffer, file.mimetype);
-              fileUrl = url;
-            } catch (storageErr) {
-              console.warn(`[Submit] S3 upload failed for ${file.originalname}, continuing without storage:`, (storageErr as Error).message);
+            const jobSections = splitExtractedJobSections(extracted || "", file.originalname);
+            if (jobSections.length > 1) {
+              console.log(`[Submit] Split ${file.originalname} into ${jobSections.length} job sections: ${jobSections.map(s => s.originalname).join(", ")}`);
             }
 
-            // Step 3: Save file record to DB (non-critical, don't block AI extraction)
-            try {
+            for (const section of jobSections) {
+              const reportId = nanoid(12);
+              const sectionText = section.extractedText;
+
+              // Step 2: Try to upload to S3 (non-critical, don't fail if storage is unavailable)
+              let fileKey = "";
+              let fileUrl = "";
+              try {
+                const pathPrefix = companyId ? `${companyId}/${user.id}` : `${user.id}`;
+                fileKey = `${pathPrefix}/uploads/${reportId}/${section.originalname}`;
+                const { url } = await storagePut(fileKey, file.buffer, file.mimetype);
+                fileUrl = url;
+              } catch (storageErr) {
+                console.warn(`[Submit] S3 upload failed for ${section.originalname}, continuing without storage:`, (storageErr as Error).message);
+              }
+
+              // Step 3: Save file record to DB (non-critical, don't block AI extraction)
+              try {
+                if (db) {
+                  await db.insert(filesTable).values({
+                    reportId,
+                    userId: user.id,
+                    companyId,
+                    filename: section.originalname,
+                    mimeType: file.mimetype,
+                    fileKey: fileKey || `local/${reportId}/${section.originalname}`,
+                    url: fileUrl || "",  // url is NOT NULL in schema, use empty string
+                    extractedText: sectionText || null,
+                    fileSize: file.size,
+                  });
+                }
+              } catch (dbErr: any) {
+                console.warn(`[Submit] Failed to save file record for ${section.originalname}, continuing:`, dbErr?.message || dbErr);
+                if (dbErr?.cause) {
+                  console.warn(`[Submit] File record DB cause for ${section.originalname}:`, dbErr.cause);
+                }
+              }
+
+              // Step 4: Use AI to extract structured job info from content
+              const allContent = [sectionText, text].filter(Boolean).join("\n\n");
+              console.log(`[Submit] allContent length: ${allContent.length}, will call AI: ${!!allContent.trim()}`);
+              let extractedInfo: any = null;
+              if (allContent.trim()) {
+                extractedInfo = await extractJobInfoViaAI(allContent, { companyId, userId: user.id, phone: user.phone || undefined });
+                console.log(`[Submit] AI extractedInfo:`, JSON.stringify(extractedInfo));
+              } else {
+                console.log(`[Submit] allContent is empty, skipping AI extraction`);
+              }
+
+              // Step 5: Create report record
+              // inputText: prefer file-extracted text, fallback to user-typed text
+              const reportInputText = (sectionText && sectionText.trim() && !sectionText.startsWith("["))
+                ? sectionText.slice(0, 10000)  // Limit to 10k chars for DB storage
+                : text;
               if (db) {
-                await db.insert(filesTable).values({
+                await db.insert(reports).values({
                   reportId,
                   userId: user.id,
                   companyId,
-                  filename: file.originalname,
-                  mimeType: file.mimetype,
-                  fileKey: fileKey || `local/${reportId}/${file.originalname}`,
-                  url: fileUrl || "",  // url is NOT NULL in schema, use empty string
-                  extractedText: extracted || null,
-                  fileSize: file.size,
+                  jobTitle: extractedInfo?.jobTitle || null,
+                  company: extractedInfo?.company || null,
+                  industry: extractedInfo?.industry || null,
+                  inputText: reportInputText,
+                  extractedInfo: { ...extractedInfo, filename: section.originalname, sourceFilename: file.originalname },
+                  status: "pending",
                 });
               }
-            } catch (dbErr) {
-              console.warn(`[Submit] Failed to save file record for ${file.originalname}, continuing:`, (dbErr as Error).message);
+              createdReports.push({ reportId, filename: section.originalname });
             }
-
-            // Step 4: Use AI to extract structured job info from content
-            const allContent = [extracted, text].filter(Boolean).join("\n\n");
-            console.log(`[Submit] allContent length: ${allContent.length}, will call AI: ${!!allContent.trim()}`);
-            let extractedInfo: any = null;
-            if (allContent.trim()) {
-              extractedInfo = await extractJobInfoViaAI(allContent, { companyId, userId: user.id, phone: user.phone || undefined });
-              console.log(`[Submit] AI extractedInfo:`, JSON.stringify(extractedInfo));
-            } else {
-              console.log(`[Submit] allContent is empty, skipping AI extraction`);
-            }
-
-            // Step 5: Create report record
-            // inputText: prefer file-extracted text, fallback to user-typed text
-            const reportInputText = (extracted && extracted.trim() && !extracted.startsWith("[")) 
-              ? extracted.slice(0, 10000)  // Limit to 10k chars for DB storage
-              : text;
-            if (db) {
-              await db.insert(reports).values({
-                reportId,
-                userId: user.id,
-                companyId,
-                jobTitle: extractedInfo?.jobTitle || null,
-                company: extractedInfo?.company || null,
-                industry: extractedInfo?.industry || null,
-                inputText: reportInputText,
-                extractedInfo: { ...extractedInfo, filename: file.originalname },
-                status: "pending",
-              });
-            }
-            createdReports.push({ reportId, filename: file.originalname });
           } catch (fileError) {
+            const reportId = nanoid(12);
             console.error(`[Submit] File processing error for ${file.originalname}:`, fileError);
             // Still create a report even if file parsing fails
             if (db) {
@@ -1154,12 +1218,16 @@ async function extractTextFromBuffer(buffer: Buffer, filename: string, mimeType:
         // Fallback: try pdf-parse v2 PDFParse class
         try {
           const { PDFParse } = require("pdf-parse");
-          const parser = new PDFParse();
-          const result = await parser.getText({ data: new Uint8Array(buffer) });
-          const text = result?.pages?.map((p: any) => p.text || "").join("\n") || "";
-          if (text.trim()) {
-            console.log(`[extractText] PDF extracted via pdf-parse v2, length: ${text.length}`);
-            return text;
+          const parser = new PDFParse({ data: new Uint8Array(buffer) });
+          try {
+            const result = await parser.getText();
+            const text = result?.text || result?.pages?.map((p: any) => p.text || "").join("\n") || "";
+            if (text.trim()) {
+              console.log(`[extractText] PDF extracted via pdf-parse v2, length: ${text.length}`);
+              return text;
+            }
+          } finally {
+            await parser.destroy?.();
           }
         } catch (ppErr) {
           console.warn(`[extractText] pdf-parse v2 failed for ${filename}:`, (ppErr as Error).message);
