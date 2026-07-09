@@ -59,5 +59,7 @@ export function isRealUser(user: any): boolean {
  * 既杜绝默认访客绕过限制，又不误伤真实登录用户。
  */
 export function isReadOnlyShareGuest(user: any): boolean {
-  return isShareGuest() && !isRealUser(user);
+  // 分享链接上下文必须始终只读。不能因为浏览器里已有管理员/登录态就放开，
+  // 否则接收人从分享报告跳回首页后可以继续发起新的分析。
+  return isShareGuest();
 }

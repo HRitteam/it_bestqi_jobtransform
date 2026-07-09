@@ -4021,7 +4021,7 @@ function registerApiRoutes(app) {
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
-      if (req.headers["x-share-guest"] === "1" && user.role !== "admin") {
+      if (req.headers["x-share-guest"] === "1") {
         res.status(403).json({ error: "\u5206\u4EAB\u67E5\u770B\u6A21\u5F0F\u4E0B\u4E0D\u652F\u6301\u53D1\u8D77\u65B0\u5206\u6790" });
         return;
       }
