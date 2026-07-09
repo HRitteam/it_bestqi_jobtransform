@@ -11,6 +11,7 @@
  */
 import { useState, useCallback, useEffect } from "react";
 import { Lock } from "lucide-react";
+import { markShareGuest } from "@/lib/shareGuest";
 
 const SITE_SESSION_KEY = "site_authenticated";
 
@@ -46,9 +47,12 @@ export default function SiteGate({ children }: SiteGateProps) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 分享链接进入时直接放行，并标记会话已解锁，便于后续浏览。
+  // 分享链接进入时直接放行，并标记为只读分享访客。
+  // 即使用户此前已经通过进站密码，也必须写入 shareGuestMode，
+  // 否则从分享报告跳回首页后会丢失只读限制。
   useEffect(() => {
-    if (isShareEntry() && !isSiteUnlocked()) {
+    if (isShareEntry()) {
+      markShareGuest();
       try {
         sessionStorage.setItem(SITE_SESSION_KEY, "true");
       } catch {}
